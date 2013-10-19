@@ -20,7 +20,6 @@
 using namespace std;
 using boost::asio::ip::tcp;
 
-//typedef auto_ptr<boost::asio::io_service::work> work_ptr;
 
 typedef boost::shared_ptr<std::string> string_ptr;
 
@@ -30,56 +29,27 @@ AI_DRIVER_NODE_EXPORT_METHODS(RVDriverMtd);
 class Message
 {
 public:
-  enum { max_length = 512 };
+    enum { max_length = 512 };
 
-  Message(const void* data, size_t length)
-    : length_(length)
-  {
-     data_ = reinterpret_cast<const char*>(data);
-  }
+    Message(const void* data, size_t length)
+        : length_(length)
+    {
+        data_ = reinterpret_cast<const char*>(data);
+    }
 
-//  Message(const std::string& message)
-//  {
-//     memcpy(data_, message.c_str(), message.length());
-//     length_ = message.length();
-//  }
+    const char* data() const
+    {
+        return data_;
+    }
 
-  const char* data() const
-  {
-    return data_;
-  }
-
-  size_t length() const
-  {
-    return length_;
-  }
-
-
-//  bool decode_header()
-//  {
-//    using namespace std; // For strncat and atoi.
-//    char header[header_length + 1] = "";
-//    strncat(header, data_, header_length);
-//    body_length_ = atoi(header);
-//    if (body_length_ > max_body_length)
-//    {
-//      body_length_ = 0;
-//      return false;
-//    }
-//    return true;
-//  }
-//
-//  void encode_header()
-//  {
-//    using namespace std; // For sprintf and memcpy.
-//    char header[header_length + 1] = "";
-//    sprintf(header, "%4d", body_length_);
-//    memcpy(data_, header, header_length);
-//  }
+    size_t length() const
+    {
+        return length_;
+    }
 
 private:
-  const char* data_;
-  size_t length_;
+    const char* data_;
+    size_t length_;
 };
 
 typedef std::deque<Message> message_queue;
@@ -87,141 +57,89 @@ typedef std::deque<Message> message_queue;
 class Client
 {
 public:
-  Client(boost::asio::io_service& io_service)
-    : io_service_(io_service),
-      socket_(io_service)
-  {}
+    Client(boost::asio::io_service& io_service)
+        : io_service_(io_service),
+          socket_(io_service)
+    {}
 
-  bool connect(std::string host, int port)
-  {
-
-//    boost::asio::async_connect(socket_, endpoint_iterator,
-//        boost::bind(&Client::handle_connect, this,
-//          boost::asio::placeholders::error));
-
-     try {
-        tcp::resolver resolver(io_service_);
-        tcp::resolver::query query(host, boost::lexical_cast<std::string>(port).c_str());
-        tcp::resolver::iterator iterator = resolver.resolve (query);
-        boost::system::error_code err = boost::asio::error::host_not_found;
-        tcp::resolver::iterator end;
-        while (err && iterator != end) {
-           socket_.close();
-           AiMsgInfo("connecting");
-           socket_.connect(*iterator++, err);
-        }
-
-        if (err) {
-           AiMsgError("Host not found");
-           return false;
-        }
-     } catch (boost::system::system_error &err) {
-        AiMsgError("Error while connecting: %s", err.what());
-        return false;
-     }
-     return true;
-  }
-
-//  void write(const Message& msg)
-//  {
-//     //cout << msg << endl;
-//    io_service_.post(boost::bind(&Client::do_write, this, msg));
-//  }
-
-  void write(const Message& msg)
-  {
-     try {
-        //cout << "data" << endl;
-        boost::asio::write(socket_,
-            boost::asio::buffer(msg.data(), msg.length()));
-     } catch (boost::system::system_error &err) {
-        do_close();
-        AiMsgError("Error while writing: %s", err.what());
-     }
-  }
-
-  void write(const std::string& msg)
-  {
-     try {
-        //cout << msg << endl;
-        boost::asio::write(socket_,
-            boost::asio::buffer(msg, msg.length()));
-     } catch (boost::system::system_error &err) {
-        do_close();
-        AiMsgError("Error while writing: %s", err.what());
-     }
-  }
-
-  void write_message(const std::string& msg)
-  {
-     boost::format messageFormat = boost::format("MESSAGE %1% %2%") % msg.size() % msg;
-     write(messageFormat.str());
-  }
-
-  void close()
-  {
-    io_service_.post(boost::bind(&Client::do_close, this));
-  }
-
-private:
-
-  void handle_connect(const boost::system::error_code& error)
-  {
-    if (!error)
+    bool connect(std::string host, int port)
     {
-       cout << "connected" << endl;
-       AiMsgInfo("connected");
-    }
-  }
-//
-//  void do_write(Message msg)
-//  {
-//    bool write_in_progress = !write_msgs_.empty();
-//    write_msgs_.push_back(msg);
-//    if (!write_in_progress)
-//    {
-//       cout << "async write " <<  write_msgs_.front().length() << endl;
-//      boost::asio::async_write(socket_,
-//          buffer(write_msgs_.front().data(),
-//            write_msgs_.front().length()),
-//          boost::bind(&Client::handle_write, this,
-//            boost::asio::placeholders::error));
-//    }
-//  }
-//
-//  void handle_write(const boost::system::error_code& error)
-//  {
-//    if (!error)
-//    {
-//       cout << "handle write" << endl;
-//      write_msgs_.pop_front();
-//      if (!write_msgs_.empty())
-//      {
-//         cout << "async write " <<  write_msgs_.front().length() << endl;
-//        boost::asio::async_write(socket_,
-//            buffer(write_msgs_.front().data(),
-//              write_msgs_.front().length()),
-//            boost::bind(&Client::handle_write, this,
-//              boost::asio::placeholders::error));
-//      }
-//    }
-//    else
-//    {
-//       cout << "ERROR handle write" << endl;
-//      do_close();
-//    }
-//  }
+        try {
+            tcp::resolver resolver(io_service_);
+            tcp::resolver::query query(host, boost::lexical_cast<std::string>(port).c_str());
+            tcp::resolver::iterator iterator = resolver.resolve (query);
+            boost::system::error_code err = boost::asio::error::host_not_found;
+            tcp::resolver::iterator end;
+            while (err && iterator != end) {
+                socket_.close();
+                AiMsgInfo("connecting");
+                socket_.connect(*iterator++, err);
+            }
 
-  void do_close()
-  {
-     //cout << "closing socket" << endl;
-    socket_.close();
-  }
+            if (err) {
+                AiMsgError("Host not found");
+                return false;
+            }
+        } catch (boost::system::system_error &err) {
+            AiMsgError("Error while connecting: %s", err.what());
+            return false;
+        }
+        return true;
+    }
+
+    void write(const Message& msg)
+    {
+        try {
+            boost::asio::write(socket_,
+                boost::asio::buffer(msg.data(), msg.length()));
+        } catch (boost::system::system_error &err) {
+            do_close();
+            AiMsgError("Error while writing: %s", err.what());
+        }
+    }
+
+    void write(const std::string& msg)
+    {
+        try {
+            boost::asio::write(socket_,
+                boost::asio::buffer(msg, msg.length()));
+        } catch (boost::system::system_error &err) {
+            do_close();
+            AiMsgError("Error while writing: %s", err.what());
+        }
+    }
+
+    void write_message(const std::string& msg)
+    {
+        boost::format messageFormat = boost::format("MESSAGE %1% %2%") % msg.size() % msg;
+        write(messageFormat.str());
+    }
+
+    void close()
+    {
+        io_service_.post(boost::bind(&Client::do_close, this));
+    }
 
 private:
-  boost::asio::io_service& io_service_;
-  tcp::socket socket_;
-  message_queue write_msgs_;
+
+    void handle_connect(const boost::system::error_code& error)
+    {
+        if (!error)
+        {
+            cout << "connected" << endl;
+            AiMsgInfo("connected");
+        }
+    }
+
+    void do_close()
+    {
+        socket_.close();
+    }
+
+private:
+    boost::asio::io_service& io_service_;
+    tcp::socket socket_;
+    message_queue write_msgs_;
 };
 
 
@@ -252,14 +170,12 @@ namespace
 
 struct ShaderData
 {
-   //boost::thread  thread;
    void* thread;
    Client* client;
    boost::asio::io_service* io_service;
    boost::asio::io_service::work* work;
    std::string* media_name;
    int nchannels;
-   //work_ptr work;
    ShaderData() : thread(NULL),
                   client(NULL),
                   io_service(NULL),
@@ -351,9 +267,6 @@ driver_open
    // Generate a unique media name. Cannot contain spaces. Everything after the last slash is
    // stripped from the name displayed in RV, so we put the timestamp in front followed by a slash
    // so it won't clutter the catalog.
-   //std::string timestamp;
-   //formatDateTime("%m-%d/%H:%M:%S/", boost::posix_time::second_clock::local_time(), timestamp);
-   //data->media_name = new std::string(timestamp + AiNodeGetStr(node, "filename"));
 
    if (data->media_name == NULL)
    {
@@ -409,10 +322,8 @@ driver_open
    boost::format newImageSource("EVENT remote-eval * "
          "{ string media = \"%1%\"; bool found = false;\n"
          "for_each (source; nodesOfType(\"RVImageSource\")) {\n"
-//         "  print(\"%%s\\n\" %% sourceMedia(source));"
          "  if (getStringProperty(\"%%s.media.name\" %% source)[0] == media) {\n"
          "    found = true;\n"
-//         "    print(\"found!\\n\");"
          "    break;\n}}\n"
          "if (!found) {\n"
          "  let s = newImageSource( media, %2%, %3%, "     // name, w, h
@@ -425,6 +336,7 @@ driver_open
          "setViewNode(nodeGroup(s));"                      // make the new source the currently viewed node
          "}}; ");
          //"print(\"%%s\\n\" %% getStringProperty(\"%%s.media.name\" %% s)); print(\"%%s\\n\" %% getStringProperty(\"%%s.media.location\" %% s)); }; ");
+
    // there is no need to set the data window for region renders, bc the tiles place
    // themselves appropriately within the image.
    newImageSource % *data->media_name;
@@ -580,13 +492,6 @@ driver_close
    ShaderData *data = (ShaderData*)AiDriverGetLocalData(node);
    if (data->media_name == NULL)
       return;
-
-//   data->client->write("MESSAGE 10 DISCONNECT");
-//   data->client->close();
-//   //data->work->reset();
-//   data->io_service->stop();
-//   AiThreadWait(data->thread);
-//   AiThreadClose(data->thread);
 }
 
 node_finish
