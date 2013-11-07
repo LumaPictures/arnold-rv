@@ -1,0 +1,6 @@
+release
+debug
+.build
+*.dblite
+*.env
+

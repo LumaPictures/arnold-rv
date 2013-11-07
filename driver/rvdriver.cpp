@@ -1,170 +1,233 @@
 #include <ai.h>
-#include <ai_critsec.h>
-#include <ai_drivers.h>
-#include <ai_filters.h>
-#include <ai_msg.h>
-#include <ai_render.h>
-#include <ai_universe.h>
-
-#include <boost/asio.hpp>
-#include <boost/bind.hpp>
-#include <boost/thread/thread.hpp>
-#include <boost/format.hpp>
-#include <boost/lexical_cast.hpp>
-#include <boost/date_time/posix_time/posix_time.hpp>
-
-#include <stdio.h>
-#include <iostream>
 #include <deque>
-
-using namespace std;
-using boost::asio::ip::tcp;
-
-
-typedef boost::shared_ptr<std::string> string_ptr;
+#include <sstream>
+#include <gcore/gcore>
+#include <gnet/gnet>
 
 AI_DRIVER_NODE_EXPORT_METHODS(RVDriverMtd);
-
 
 class Message
 {
 public:
-    enum { max_length = 512 };
-
-    Message(const void* data, size_t length)
-        : length_(length)
-    {
-        data_ = reinterpret_cast<const char*>(data);
-    }
-
-    const char* data() const
-    {
-        return data_;
-    }
-
-    size_t length() const
-    {
-        return length_;
-    }
-
+   enum
+   {
+      max_length = 512
+   };
+   
+   Message(const void* data, size_t length)
+      : mLength(length)
+   {
+      mData = reinterpret_cast<const char*>(data);
+   }
+   
+   const char* data() const
+   {
+      return mData;
+   }
+   
+   size_t length() const
+   {
+      return mLength;
+   }
+    
 private:
-    const char* data_;
-    size_t length_;
+   const char* mData;
+   size_t mLength;
 };
-
-typedef std::deque<Message> message_queue;
 
 class Client
 {
 public:
-    Client(boost::asio::io_service& io_service)
-        : io_service_(io_service),
-          socket_(io_service)
-    {}
 
-    bool connect(std::string host, int port)
-    {
-        try {
-            tcp::resolver resolver(io_service_);
-            tcp::resolver::query query(host, boost::lexical_cast<std::string>(port).c_str());
-            tcp::resolver::iterator iterator = resolver.resolve (query);
-            boost::system::error_code err = boost::asio::error::host_not_found;
-            tcp::resolver::iterator end;
-            while (err && iterator != end) {
-                socket_.close();
-                AiMsgInfo("connecting");
-                socket_.connect(*iterator++, err);
+   Client()
+      : mSocket(0), mConn(0)
+   {
+   }
+
+   ~Client()
+   {
+      close();
+
+      if (mSocket)
+      {
+         AiMsgInfo("[rvdriver] Destroy socket");
+         delete mSocket;
+      }
+   }
+
+   void read()
+   {
+      if (mConn)
+      {
+         bool done = false;
+         char *bytes = 0;
+         size_t len = 0;
+
+         try
+         {
+            while (!done)
+            {
+               mConn->read(bytes, len);
+
+               done = (len == 0);
+
+               if (bytes)
+               {
+                  // Note: beware of multithreading if we need to write to the socket
+                  if (len >= 8 && !strncmp(bytes, "GREETING", 8))
+                  {
+                  }
+                  else if (len >= 8 && !strncmp(bytes, "PING 1 p", 8))
+                  {
+                     //mConn->write("PONG 1 p");
+                  }
+                  else if (len >= 7 && !strncmp(bytes, "MESSAGE", 7))
+                  {
+                  }
+
+                  free(bytes);
+                  bytes = 0;
+               }
             }
+         }
+         catch (gnet::Exception &e)
+         {
+         }
+      }
+   }
+   
+   bool connect(std::string hostname, int port)
+   {
+      try
+      {
+         gnet::Host host(hostname, port);
 
-            if (err) {
-                AiMsgError("Host not found");
-                return false;
+         if (mSocket)
+         {
+            AiMsgInfo("[rvdriver] Socket already created");
+            if (mSocket->host().address() != host.address() || mSocket->host().port() != host.port())
+            {
+               AiMsgInfo("[rvdriver] Host differs, destroy socket");
+               close();
+               delete mSocket;
+               mSocket = 0;
             }
-        } catch (boost::system::system_error &err) {
-            AiMsgError("Error while connecting: %s", err.what());
-            return false;
-        }
-        return true;
-    }
+            else if (mConn)
+            {
+               if (mConn->isValid())
+               {
+                  AiMsgInfo("[rvdriver] Connection already established");
+                  return true;
+               }
+               else
+               {
+                  // keep socket but close connection
+                  AiMsgInfo("[rvdriver] Close invalid connection");
+                  mSocket->closeConnection(mConn);
+                  mConn = 0;
+               }
+            }
+         }
 
-    void write(const Message& msg)
-    {
-        try {
-            boost::asio::write(socket_,
-                boost::asio::buffer(msg.data(), msg.length()));
-        } catch (boost::system::system_error &err) {
-            do_close();
-            AiMsgError("Error while writing: %s", err.what());
-        }
-    }
+         if (!mSocket)
+         {
+            AiMsgInfo("[rvdriver] Create socket");
+            mSocket = new gnet::TCPSocket(gnet::Host(hostname, port));
+         }
 
-    void write(const std::string& msg)
-    {
-        try {
-            boost::asio::write(socket_,
-                boost::asio::buffer(msg, msg.length()));
-        } catch (boost::system::system_error &err) {
-            do_close();
-            AiMsgError("Error while writing: %s", err.what());
-        }
-    }
+         AiMsgInfo("[rvdriver] Connect to host");
+         mConn = mSocket->connect();
 
-    void write_message(const std::string& msg)
-    {
-        boost::format messageFormat = boost::format("MESSAGE %1% %2%") % msg.size() % msg;
-        write(messageFormat.str());
-    }
+         // adjust connection buffer size to twice the size of a tile pixel data
+         size_t ts = AiNodeGetInt(AiUniverseGetOptions(), "bucket_size");
+         mConn->setBufferSize(2 * (ts * ts * 4 * sizeof(float)));
+      }
+      catch (std::exception &err)
+      {
+         AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
+         
+         // No risk having mConn != 0 here
 
-    void close()
-    {
-        io_service_.post(boost::bind(&Client::do_close, this));
-    }
+         if (mSocket)
+         {
+            delete mSocket;
+            mSocket = 0;
+         }
+
+         return false;
+      }
+      
+      return true;
+   }
+   
+   void write(const Message& msg)
+   {
+      if (!mConn || !mConn->isValid())
+      {
+         return;
+      }
+      
+      try
+      {
+         mConn->write(msg.data(), msg.length());
+      }
+      catch (std::exception &err)
+      {
+         close();
+         AiMsgError("[rvdriver] Error while writing: %s", err.what());
+      }
+   }
+   
+   void write(const std::string& msg)
+   {
+      if (!mConn || !mConn->isValid())
+      {
+         return;
+      }
+
+      try
+      {
+         mConn->write(msg.c_str(), msg.length());
+      }
+      catch (std::exception &err)
+      {
+         close();
+         AiMsgError("[rvdriver] Error while writing: %s", err.what());
+      }
+   }
+   
+   void writeMessage(const std::string& msg)
+   {
+      std::ostringstream oss;
+      oss << "MESSAGE " << msg.size() << " " << msg;
+      write(oss.str());
+   }
+   
+   void close()
+   {
+      if (mSocket && mConn)
+      {
+         AiMsgInfo("[rvdriver] Close connection");
+         mSocket->closeConnection(mConn);
+         // closeConnection may not delete mConn if it is not a connection to it
+         mConn = 0;
+      }
+   }
 
 private:
-
-    void handle_connect(const boost::system::error_code& error)
-    {
-        if (!error)
-        {
-            cout << "connected" << endl;
-            AiMsgInfo("connected");
-        }
-    }
-
-    void do_close()
-    {
-        socket_.close();
-    }
-
-private:
-    boost::asio::io_service& io_service_;
-    tcp::socket socket_;
-    message_queue write_msgs_;
+   
+   gnet::TCPSocket *mSocket;
+   gnet::TCPConnection *mConn;
 };
-
-
-void formatDateTime(
-    const std::string& format,
-    const boost::posix_time::ptime& date_time,
-    std::string& result)
-  {
-    boost::posix_time::time_facet * facet =
-      new boost::posix_time::time_facet(format.c_str());
-    std::ostringstream stream;
-    stream.imbue(std::locale(stream.getloc(), facet));
-    stream << date_time;
-    result = stream.str();
-  }
-
 
 namespace
 {
-
     enum RVDriverParams
     {
-       p_host,
+       p_host = 0,
        p_port,
-       p_gamma
+       p_gamma,
+       p_imagename
     };
 }
 
@@ -172,41 +235,38 @@ struct ShaderData
 {
    void* thread;
    Client* client;
-   boost::asio::io_service* io_service;
-   boost::asio::io_service::work* work;
    std::string* media_name;
    int nchannels;
-   ShaderData() : thread(NULL),
-                  client(NULL),
-                  io_service(NULL),
-                  work(NULL),
-                  media_name(NULL),
-                  nchannels(-1)
-   {cout << "ShaderData()" << endl;};
+   
+   ShaderData()
+      : thread(NULL)
+      , client(NULL)
+      , media_name(NULL)
+      , nchannels(-1)
+   {
+   }
 };
-
 
 node_parameters
 {
-   AiParameterSTR("host", "127.0.0.1");
+   AiParameterSTR("host", "localhost");
    AiParameterINT("port", 45124);
-   AiParameterSTR("filename", "");
-   AiMetaDataSetBool(mds, "filename", "maya.hide", true);
-
+   AiParameterFLT("gamma", 1.0f);
+   AiParameterSTR("imagename", "");
+   
+   AiMetaDataSetBool(mds, "imagename", "maya.hide", true);
    AiMetaDataSetStr(mds, NULL, "maya.translator", "rv");
-   AiMetaDataSetStr(mds, NULL, "maya.attr_prefix", "");
+   AiMetaDataSetStr(mds, NULL, "maya.attr_prefix", "rv_");
    AiMetaDataSetBool(mds, NULL, "display_driver", true);
-//   AiMetaDataSetBool(mds, NULL, "maya.hide", true);
 }
 
 node_initialize
 {
-   cout << "driver INIT" << endl;
-   ShaderData* data = (ShaderData*)AiMalloc(sizeof(ShaderData));
+   AiMsgInfo("[rvdriver] Driver initialize");
+
+   ShaderData* data = (ShaderData*) AiMalloc(sizeof(ShaderData));
    data->thread = NULL;
    data->client = NULL;
-   data->io_service = NULL;
-   data->work = NULL;
    data->media_name = NULL;
    data->nchannels = -1;
    AiDriverInitialize(node, true, data);
@@ -214,6 +274,13 @@ node_initialize
 
 node_update
 {
+}
+
+unsigned int ReadFromConnection(void *data)
+{
+   Client *client = (Client*) data;
+   client->read();
+   return 1;
 }
 
 driver_supports_pixel_type
@@ -226,61 +293,49 @@ driver_extension
    return NULL;
 }
 
-unsigned int io_service_run(void * data)
-{
-   boost::asio::io_service* io_service = (boost::asio::io_service*)data;
-   cout << "running ioservice" << endl;
-   io_service->run();
-   return 1;
-}
-
 driver_open
 {
-   cout << "driver open" << endl;
-   ShaderData *data = (ShaderData*)AiDriverGetLocalData(node);
+   AiMsgInfo("[rvdriver] Driver open");
+
+   ShaderData *data = (ShaderData*) AiDriverGetLocalData(node);
 
    const char* host = AiNodeGetStr(node, "host");
    // TODO: allow port to be a search range of form "45124-45128" ?
-   int  port = AiNodeGetInt(node, "port");
+   int port = AiNodeGetInt(node, "port");
 
    if (data->client == NULL)
    {
-      data->io_service = new boost::asio::io_service;
-      data->work = new boost::asio::io_service::work(*data->io_service);
-      data->client = new Client(*data->io_service);
+      data->client = new Client();
    }
    else
    {
-      // assume we're still connected
       return;
    }
-   cout << "connect" << endl;
 
    if (!data->client->connect(host, port))
    {
+      AiMsgWarning("[rvdriver] Could not connect to %s:%d", host, port);
       data->media_name = NULL;
-      data->thread = NULL;
-      cout << "return" << endl;
       return;
    }
 
-   // Generate a unique media name. Cannot contain spaces. Everything after the last slash is
-   // stripped from the name displayed in RV, so we put the timestamp in front followed by a slash
-   // so it won't clutter the catalog.
-
    if (data->media_name == NULL)
    {
-      data->media_name = new std::string(AiNodeGetStr(node, "filename"));
+      // always add time stamp?
+      std::string mn = AiNodeGetStr(node, "imagename");
+      mn += "_" + gcore::Date().format("%y%m%d-%H%M%S");
+      AiMsgInfo("[rvdriver] Media name: %s", mn.c_str());
 
-      AiMsgInfo( "spawning thread");
-      //data->thread = boost::thread(boost::bind(&boost::asio::io_service::run, &io_service));
-      data->thread = AiThreadCreate(io_service_run, (void*)data->io_service, AI_PRIORITY_NORMAL);
+      data->media_name = new std::string(mn);
+      data->thread = AiThreadCreate(ReadFromConnection, (void*)data->client, AI_PRIORITY_NORMAL);
    }
 
-   cout << "greet" << endl;
+   std::ostringstream oss;
+
+   // Send greeting to RV
    std::string greeting = "rv-shell-1 arnold";
-   boost::format greetingFormat = boost::format("NEWGREETING %1% %2%") % greeting.size() % greeting;
-   data->client->write(greetingFormat.str());
+   oss << "NEWGREETING " << greeting.size() << " " << greeting;
+   data->client->write(oss.str());
 
    //  The newImageSource() function needs to be called for RV create
    //  space for the image. After this the pixel blocks will refer to
@@ -299,77 +354,79 @@ driver_open
    //          newImageSourcePixels(s, ...);
    //          newImageSourcePixels(s, ...);
    //      }
-   // create the list of AOVs in mu syntax
-   int         pixel_type;
+
+   // Create the list of AOVs in mu syntax
+   int pixel_type;
    const char* aov_name;
    std::string aov_names = "string[] {";
    std::string aov_cmds = "";
    data->nchannels = 0;
    unsigned int i = 0;
+
    while (AiOutputIteratorGetNext(iterator, &aov_name, &pixel_type, NULL))
    {
       if (i > 0)
+      {
          aov_names += ",";
+      }
       aov_names += std::string("\"") + aov_name + "\"";
-      aov_cmds += (boost::format("newImageSourcePixels( s, 1, \"%1%\", nil);\n") % aov_name).str();
+      oss.str("");
+      oss << "newImageSourcePixels(s, 1, \"" << aov_name << "\", nil);\n";
+      aov_cmds += oss.str();
       i++;
    }
-   aov_names +=  "}";
+   aov_names += "}";
 
-   data->nchannels = 4; // for now we always convert to RGBA, because RV does not allow layers with differing types/channels
+   // For now we always convert to RGBA, because RV does not allow layers with differing types/channels
+   data->nchannels = 4;
 
-
-   boost::format newImageSource("EVENT remote-eval * "
-         "{ string media = \"%1%\"; bool found = false;\n"
-         "for_each (source; nodesOfType(\"RVImageSource\")) {\n"
-         "  if (getStringProperty(\"%%s.media.name\" %% source)[0] == media) {\n"
-         "    found = true;\n"
-         "    break;\n}}\n"
-         "if (!found) {\n"
-         "  let s = newImageSource( media, %2%, %3%, "     // name, w, h
-         "%4%, %5%, 0, 0, "                                // uncrop w, h, x-off, y-off,
-         "1.0, %6%, 32, false, "                           // pixel aspect, channels, bit-depth, nofloat
-         "1, 1, 24.0, "                                    // fs, fe, fps
-         "%7%, "                                           // layers
-         "nil"                                             // views
-         ");\n %8%\n"                                      // source pixel commands
-         "setViewNode(nodeGroup(s));"                      // make the new source the currently viewed node
-         "}}; ");
-         //"print(\"%%s\\n\" %% getStringProperty(\"%%s.media.name\" %% s)); print(\"%%s\\n\" %% getStringProperty(\"%%s.media.location\" %% s)); }; ");
-
-   // there is no need to set the data window for region renders, bc the tiles place
+   // There is no need to set the data window for region renders, bc the tiles place
    // themselves appropriately within the image.
-   newImageSource % *data->media_name;
-   newImageSource % (display_window.maxx - display_window.minx +1);
-   newImageSource % (display_window.maxy - display_window.miny +1);
-   newImageSource % (display_window.maxx - display_window.minx +1);
-   newImageSource % (display_window.maxy - display_window.miny +1);
-   newImageSource % data->nchannels;
-   newImageSource % aov_names;
-   newImageSource % aov_cmds;
-   boost::format messageFormat = boost::format("MESSAGE %1% %2%") % newImageSource.size() % newImageSource;
-   cout << messageFormat << endl;
-   data->client->write(messageFormat.str());
+   oss.str("");
+   oss << "EVENT remote-eval * ";
+   oss << "{ string media = \"" << *(data->media_name) << "\"; bool found = false;" << std::endl;
+   oss << "  for_each (source; nodesOfType(\"RVImageSource\")) {" << std::endl;
+   oss << "    if (getStringProperty(\"%s.media.name\" % source)[0] == media) {" << std::endl;
+   oss << "      found = true;" << std::endl;
+   oss << "      break;" << std::endl;
+   oss << "    }" << std::endl;
+   oss << "  }" << std::endl;
+   oss << "  if (!found) {" << std::endl;
+   oss << "    let s = newImageSource(media, ";  // name
+   oss << (display_window.maxx - display_window.minx + 1) << ", ";  // w
+   oss << (display_window.maxy - display_window.miny + 1) << ", ";  // h
+   oss << (display_window.maxx - display_window.minx + 1) << ", ";  // uncrop w
+   oss << (display_window.maxy - display_window.miny + 1) << ", ";  // uncrop h
+   oss << "0, 0, 1.0, ";  // x offset, y offset, pixel aspect
+   oss << data->nchannels << ", ";  // channels
+   oss << "32, false, 1, 1, 24.0, ";  // bit-depth, nofloat, start frame, end frame, frame rate
+   oss << aov_names << ", ";  // layers
+   oss << "nil);" << std::endl;  // views
+   oss << "    " << aov_cmds << std::endl;  // source pixel commands
+   oss << "    setViewNode(nodeGroup(s));" << std::endl;  // make new source the currently viewed node
+   oss << "  }" << std::endl;
+   oss << "}" << std::endl;
 
-   cout << "data window x " << data_window.minx << ", " << data_window.maxx << endl;
-   cout << "data window y " << data_window.miny << ", " << data_window.maxy << endl;
+   std::string cmd = oss.str();
+
+   AiMsgInfo("[rvdriver] Create image sources");
+   data->client->writeMessage(cmd);
 }
 
 driver_prepare_bucket
 {
-   // we could send something to RV here to denote the tile we're about to render
+   // We could send something to RV here to denote the tile we're about to render
 }
 
 driver_write_bucket
 {
-//   AiMsgDebug("[rvdriver] write bucket (%d, %d)", bucket_xo, bucket_yo);
-   ShaderData *data = (ShaderData*)AiDriverGetLocalData(node);
+   ShaderData *data = (ShaderData*) AiDriverGetLocalData(node);
 
-   // we failed to connect in driver_open
    if (data->media_name == NULL)
+   {
       return;
+   }
 
-   //
    //  Create the interp string. For RV the PIXELTILE looks
    //  like a python function call with keyword args. There
    //  can be no spaces in the string. The following arg
@@ -387,29 +444,28 @@ driver_write_bucket
    //      y (y tile pos)   any int, default is 0
    //      f (frame)        any int, default is 1
    //
+   std::ostringstream oss;
+
    int yres = AiNodeGetInt(AiUniverseGetOptions(), "yres");
 
-//   cout << "res            " << yres << endl;
-//   cout << "bucket origin  " << bucket_xo << ", " << bucket_yo << endl;
-//   cout << "flipped origin " << bucket_xo << ", " << (yres - bucket_yo- bucket_size_y) << endl;
-
-   // create the static portion of the message
    size_t tile_size = bucket_size_x * bucket_size_y * data->nchannels * sizeof(float);
-   boost::format tileFormat = boost::format( "PIXELTILE("
-                                 "media=%1%,w=%2%,h=%3%,x=%4%,y=%5%,layer=%6%,f=1) %7% ");
-   tileFormat % *data->media_name;
-   tileFormat % bucket_size_x;
-   tileFormat % bucket_size_y;
-   tileFormat % bucket_xo;
-   tileFormat % (yres - bucket_yo- bucket_size_y); // Flip bucket coordinates vertically
 
-   int         pixel_type;
+   oss << "PIXELTILE(media=" << *(data->media_name) << ",w=" << bucket_size_x << ",h=" << bucket_size_y;
+   oss << ",x=" << bucket_xo << ",y=" << (yres - bucket_yo - bucket_size_y);  // flip bucket coordinates vertically
+   oss << ",layer=";
+
+   std::string layercmd1 = oss.str();
+   std::string layercmd2 = ",f=1) ";
+   std::string layercmd3 = " ";
+
+   int pixel_type;
    const void* bucket_data;
    const char* aov_name;
 
    while (AiOutputIteratorGetNext(iterator, &aov_name, &pixel_type, &bucket_data))
    {
       AtRGBA* pixels = new AtRGBA[bucket_size_x * bucket_size_y];
+
       switch(pixel_type)
       {
          case AI_TYPE_RGBA:
@@ -475,67 +531,64 @@ driver_write_bucket
             break;
          }
       }
-      boost::format itileFormat = tileFormat;
-      itileFormat % aov_name;
-      itileFormat % tile_size;
-      data->client->write(itileFormat.str());
-      data->client->write(Message(pixels, tile_size));
-      delete pixels;
-   }
-}
 
+      oss.str("");
+      oss << layercmd1 << aov_name << layercmd2 << tile_size << layercmd3;
+
+      data->client->write(oss.str());
+      data->client->write(Message(pixels, tile_size));
+      
+      delete pixels;
+   }   
+}
 
 driver_close
 {
-   AiMsgInfo("[rvdriver] driver close");
+   AiMsgInfo("[rvdriver] Driver close");
 
-   ShaderData *data = (ShaderData*)AiDriverGetLocalData(node);
+   ShaderData *data = (ShaderData*) AiDriverGetLocalData(node);
    if (data->media_name == NULL)
+   {
       return;
+   }
 }
 
 node_finish
 {
-   AiMsgInfo("[rvdriver] driver finish");
-   // release the driver
-
+   AiMsgInfo("[rvdriver] Driver finish");
+   
    ShaderData *data = (ShaderData*)AiDriverGetLocalData(node);
-
-   // we do everything in finish, because close is called multiple times during IPR
+   
    if (data->media_name != NULL)
    {
       delete data->media_name;
-
+      
+      AiMsgInfo("[rvdriver] Send DISCONNECT message");
       data->client->write("MESSAGE 10 DISCONNECT");
-      data->client->close();
-
-      data->io_service->stop();
+      
       AiThreadWait(data->thread);
       AiThreadClose(data->thread);
    }
-
+   
    delete data->client;
-   delete data->work;
-   delete data->io_service;
-
+   
    AiFree(data);
    AiDriverDestroy(node);
 }
 
 node_loader
 {
-   sprintf(node->version, AI_VERSION);
-
-   switch (i)
+   if (i == 0)
    {
-      case 0:
-         node->methods      = (AtNodeMethods*) RVDriverMtd;
-         node->output_type  = AI_TYPE_RGBA;
-         node->name         = "driver_rv";
-         node->node_type    = AI_NODE_DRIVER;
-         break;
-      default:
+      node->methods = (AtNodeMethods*) RVDriverMtd;
+      node->output_type = AI_TYPE_RGBA;
+      node->name = "driver_rv";
+      node->node_type = AI_NODE_DRIVER;
+      sprintf(node->version, AI_VERSION);
+      return true;
+   }
+   else
+   {
       return false;
    }
-   return true;
 }

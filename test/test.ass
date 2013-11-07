@@ -7,8 +7,6 @@
 options
 {
  name options
-# outputs 1 1 STRING 
-#  "RGBA RGBA gaussian_filter driver_exr"
  outputs 3 1 STRING 
   "RGBA RGBA gaussian_filter driver_rv"
   "direct_diffuse RGB gaussian_filter driver_rv" 
@@ -31,17 +29,13 @@ gaussian_filter
  name gaussian_filter
 }
 
-driver_exr
-{
- name driver_exr
- filename "/Volumes/luma/dev/byPrefix/DEV/DEV_000_CDO/lite/maya/images/beauty/test.exr"
-}
-
 driver_rv
 {
  name driver_rv
- filename "fump"
- host "ws-050"
+# host "localhost"
+# port 45124
+ gamma 2.2
+ imagename "test"
 }
 
 persp_camera
