@@ -19,7 +19,7 @@ options
  GI_diffuse_depth 1
  GI_glossy_depth 1
  binary_ass off
- AA_samples 6
+ AA_samples 1
  xres 1024
  yres 1024
 }
@@ -35,7 +35,9 @@ driver_rv
 # host "localhost"
 # port 45124
  gamma 2.2
- imagename "test"
+ media_name "test"
+ add_timestamp off
+ serialize_io off
 }
 
 persp_camera
