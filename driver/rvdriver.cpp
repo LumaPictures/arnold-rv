@@ -322,7 +322,7 @@ public:
          gcore::Thread::SleepCurrent(1000);
       }
    }
-   
+
    void readOnce(std::string &s)
    {
       if (isAlive())
@@ -342,6 +342,7 @@ public:
          s = "";
       }
    }
+
    void read()
    {
       bool done = false;
@@ -450,12 +451,14 @@ struct ShaderData
    Client* client;
    std::string* media_name;
    int nchannels;
+   int frame;
    
    ShaderData()
       : thread(NULL)
       , client(NULL)
       , media_name(NULL)
       , nchannels(-1)
+      , frame(1)
    {
    }
 };
@@ -597,7 +600,7 @@ driver_open
       aov_names += std::string("\"") + aov_name + "\"";
       
       oss.str("");
-      oss << "newImageSourcePixels(s, 1, \"" << aov_name << "\", nil);\n";
+      oss << "    newImageSourcePixels(src, frame, \"" << aov_name << "\", nil);\n";
       aov_cmds += oss.str();
 
       i++;
@@ -609,21 +612,50 @@ driver_open
 
    // Activate lut or gamma profile
    float gamma = AiNodeGetFlt(node, "gamma");
-   const char *lut = AiNodeGetStr(node, "lut");
-   // => using RVDisplayColor
-   if (lut)
+   std::string lut = AiNodeGetStr(node, "lut");
+   struct stat st;
+   std::string viewSetup = "";
+
+   if (lut.length() > 0 && stat(lut.c_str(), &st) == 0)
    {
-      // TODO: set lut file
+      // replace \ by /
+      size_t p0 = 0;
+      size_t p1 = lut.find('\\', p0);
+      while (p1 != std::string::npos)
+      {
+         lut[p1] = '/';
+         p0 = p1 + 1;
+         p1 = lut.find('\\', p0);
+      }
+      viewSetup  = "  setFloatProperty(\"#RVDisplayColor.color.gamma\", float[]{1.0});\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.sRGB\", int[]{0});\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.Rec709\", int[]{0});\n";
+      viewSetup += "  readLUT(\"" + lut + "\", \"#RVDisplayColor\");\n";
+      viewSetup += "  updateLUT();\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.lut.active\", int[]{1});";
    }
-   // TODO: set display gamma
+   else if (gamma > 0.0f)
+   {
+      char numbuf[64];
+      sprintf(numbuf, "%f", gamma);
+
+      viewSetup  = "  setFloatProperty(\"#RVDisplayColor.color.gamma\", float[]{";
+      viewSetup += numbuf;
+      viewSetup += "});\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.sRGB\", int[]{0});\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.Rec709\", int[]{0});\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.lut.active\", int[]{0});";
+   }
 
    // There is no need to set the data window for region renders, bc the tiles place
    // themselves appropriately within the image.
    oss.str("");
-   oss << "EVENT remote-eval * ";
+   //oss << "EVENT remote-eval * ";
+   oss << "RETURNEVENT remote-eval * ";
    oss << "{ string media = \"" << *(data->media_name) << "\";" << std::endl;
    oss << "  bool found = false;" << std::endl;
    oss << "  string src = \"\";" << std::endl;
+   oss << "  int frame = 1;" << std::endl;
    oss << "  for_each (source; nodesOfType(\"RVImageSource\")) {" << std::endl;
    oss << "    if (getStringProperty(\"%s.media.name\" % source)[0] == media) {" << std::endl;
    oss << "      found = true;" << std::endl;
@@ -632,7 +664,7 @@ driver_open
    oss << "    }" << std::endl;
    oss << "  }" << std::endl;
    oss << "  if (!found) {" << std::endl;
-   oss << "    let s = newImageSource(media, ";  // name
+   oss << "    src = newImageSource(media, ";  // name
    oss << (display_window.maxx - display_window.minx + 1) << ", ";  // w
    oss << (display_window.maxy - display_window.miny + 1) << ", ";  // h
    oss << (display_window.maxx - display_window.minx + 1) << ", ";  // uncrop w
@@ -643,14 +675,35 @@ driver_open
    oss << aov_names << ", ";  // layers
    oss << "nil);" << std::endl;  // views
    oss << "    " << aov_cmds << std::endl;  // source pixel commands
-   oss << "    setViewNode(nodeGroup(s));" << std::endl;  // make new source the currently viewed node
+   oss << "  } else {" << std::endl;
+   oss << "    frame = getIntProperty(\"%s.image.end\" % src)[0] + 1;" << std::endl;
+   oss << "    setIntProperty(\"%s.image.end\" % src, int[]{frame});" << std::endl;
+   oss << "    " << aov_cmds << std::endl;
    oss << "  }" << std::endl;
+   if (viewSetup.length() > 0)
+   {
+      oss << viewSetup << std::endl;
+   }
+   oss << "  setViewNode(nodeGroup(src));" << std::endl; // make source the currently viewed node
+   oss << "  setFrameEnd(frame);" << std::endl;
+   oss << "  setOutPoint(frame);" << std::endl;
+   oss << "  setFrame(frame);" << std::endl;
+   oss << "  frame;" << std::endl;
    oss << "}" << std::endl;
 
    std::string cmd = oss.str();
 
    AiMsgInfo("[rvdriver] Create image sources");
    data->client->writeMessage(cmd);
+
+   std::string ret;
+   int msgsz = 0;
+
+   data->client->readOnce(ret);
+   if (sscanf(ret.c_str(), "MESSAGE %d RETURN %d", &msgsz, &(data->frame)) == 2)
+   {
+      AiMsgInfo("[rvdriver] RV frame = %d", data->frame); 
+   }
 
    if (data->thread == 0)
    {
@@ -712,10 +765,8 @@ driver_write_bucket
    oss << "PIXELTILE(media=" << *(data->media_name) << ",w=" << bucket_size_x << ",h=" << bucket_size_y;
    oss << ",x=" << bucket_xo << ",y=" << (yres - bucket_yo - bucket_size_y);  // flip bucket coordinates vertically
    oss << ",layer=";
-   
+
    std::string layercmd1 = oss.str();
-   std::string layercmd2 = ",f=1) ";
-   std::string layercmd3 = " ";
    
    int pixel_type;
    const void* bucket_data;
@@ -792,7 +843,7 @@ driver_write_bucket
       }
       
       oss.str("");
-      oss << layercmd1 << aov_name << layercmd2 << tile_size << layercmd3;
+      oss << layercmd1 << aov_name << ",f=" << data->frame << ") " << tile_size << " ";
       
       Message msg(pixels, tile_size, FreeTile);
       
