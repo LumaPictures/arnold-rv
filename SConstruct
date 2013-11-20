@@ -5,8 +5,10 @@ import excons.tools.boost as boost
 
 env = excons.MakeBaseEnv()
 
-static = (int(ARGUMENTS.get("static", "0")) != 0)
+static = (int(ARGUMENTS.get("static", "1")) != 0)
 
+# to force static build (or not) in gnet
+ARGUMENTS["static"] = ("1" if static else "0")
 SConscript("gnet/SConstruct")
 
 customs = [arnold.Require]
@@ -26,7 +28,7 @@ targets = [
    {"name": "driver_rv",
     "type": "dynamicmodule",
     "ext": arnold.PluginExt(),
-    "srcs": ["driver/org/rvdriver.cpp"],
+    "srcs": ["driver/driver_rv.cpp"],
     "custom": [arnold.Require, boost.Require(libs=["thread-mt", "date_time-mt", "system-mt"], static=static)]
    }
 ]
