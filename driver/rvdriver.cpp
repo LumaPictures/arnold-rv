@@ -171,7 +171,7 @@ public:
       }
    }
    
-   bool connect(std::string hostname, int port)
+   bool connect(std::string hostname, int port, bool runRV=true)
    {
       try
       {
@@ -231,8 +231,44 @@ public:
             delete mSocket;
             mSocket = 0;
          }
-         
-         return false;
+
+         if (runRV)
+         {
+            AiMsgInfo("[rvdriver] Trying to launch RV...");
+            
+            gcore::String cmd = "rv -network -networkPort " + gcore::String(port);
+            AiMsgInfo("[rvdriver]   %s", cmd.c_str());
+
+            gcore::Process p;
+            
+            p.keepAlive(true);
+            p.showConsole(false);
+            p.captureOut(true);
+            p.captureErr(true, true);
+
+            if (p.run(cmd) == gcore::INVALID_PID)
+            {
+               return false;
+            }
+
+            // Wait until we get the "listening on port message"
+            gcore::String output;
+            gcore::String tmp;
+            while (p.read(tmp) != -1)
+            {
+               output += tmp;
+               if (output.find("INFO: listening on port") != std::string::npos)
+               {
+                  break;
+               }
+            }
+
+            return connect(hostname, port, false);
+         }
+         else
+         {
+            return false;
+         }
       }
       
       return true;
