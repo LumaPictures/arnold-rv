@@ -17,6 +17,10 @@
 #include <iostream>
 #include <deque>
 
+#if AI_VERSION_ARCH_NUM > 4 || (AI_VERSION_ARCH_NUM == 4 && AI_VERSION_MAJOR_NUM >= 1)
+#   define EXTENDED_DRIVER_API
+#endif
+
 using namespace std;
 using boost::asio::ip::tcp;
 
@@ -355,10 +359,23 @@ driver_open
    cout << "data window y " << data_window.miny << ", " << data_window.maxy << endl;
 }
 
+#ifdef EXTENDED_DRIVER_API
+driver_needs_bucket
+{
+   return true;
+}
+#endif
+
 driver_prepare_bucket
 {
    // we could send something to RV here to denote the tile we're about to render
 }
+
+#ifdef EXTENDED_DRIVER_API
+driver_process_bucket
+{
+}
+#endif
 
 driver_write_bucket
 {

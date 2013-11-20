@@ -4,6 +4,10 @@
 #include <gcore/gcore>
 #include <gnet/gnet>
 
+#if AI_VERSION_ARCH_NUM > 4 || (AI_VERSION_ARCH_NUM == 4 && AI_VERSION_MAJOR_NUM >= 1)
+#   define EXTENDED_DRIVER_API
+#endif
+
 AI_DRIVER_NODE_EXPORT_METHODS(RVDriverMtd);
 
 class Message
@@ -655,10 +659,23 @@ driver_open
    }
 }
 
+#ifdef EXTENDED_DRIVER_API
+driver_needs_bucket
+{
+   return true;
+}
+#endif
+
 driver_prepare_bucket
 {
    // We could send something to RV here to denote the tile we're about to render
 }
+
+#ifdef EXTENDED_DRIVER_API
+driver_process_bucket
+{
+}
+#endif
 
 driver_write_bucket
 {
