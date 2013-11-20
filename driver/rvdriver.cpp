@@ -821,7 +821,7 @@ node_loader
    {
       node->methods = (AtNodeMethods*) RVDriverMtd;
       node->output_type = AI_TYPE_RGBA;
-      node->name = "driver_rv";
+      node->name = "rvdriver";
       node->node_type = AI_NODE_DRIVER;
       sprintf(node->version, AI_VERSION);
       return true;

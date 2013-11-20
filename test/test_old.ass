@@ -8,9 +8,9 @@ options
 {
  name options
  outputs 3 1 STRING 
-  "RGBA RGBA gaussian_filter rvdriver"
-  "direct_diffuse RGB gaussian_filter rvdriver" 
-  "indirect_diffuse RGB gaussian_filter rvdriver" 
+  "RGBA RGBA gaussian_filter driver_rv"
+  "direct_diffuse RGB gaussian_filter driver_rv" 
+  "indirect_diffuse RGB gaussian_filter driver_rv" 
  aspect_ratio 1.000
  bucket_scanning "spiral"
  camera "perspShape"
@@ -29,15 +29,11 @@ gaussian_filter
  name gaussian_filter
 }
 
-rvdriver
+driver_rv
 {
- name rvdriver
-# host "localhost"
+ name driver_rv
+ host "localhost"
 # port 45124
- gamma 2.2
- media_name "test"
- add_timestamp off
- serialize_io off
 }
 
 persp_camera
