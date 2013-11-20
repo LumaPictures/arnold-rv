@@ -649,6 +649,11 @@ driver_open
    // Activate lut or gamma profile
    float gamma = AiNodeGetFlt(node, "gamma");
    std::string lut = AiNodeGetStr(node, "lut");
+   if (lut.length() == 0 && gcore::Env::IsSet("ARNOLD_RV_DRIVER_LUT"))
+   {
+      lut = gcore::Env::Get("ARNOLD_RV_DRIVER_LUT");
+   }
+
    struct stat st;
    std::string viewSetup = "";
 
