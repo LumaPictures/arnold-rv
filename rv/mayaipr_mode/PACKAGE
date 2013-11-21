@@ -1,0 +1,17 @@
+package: Maya IPR Support
+author: Gaetan Guidet
+organization: Marza Animation Planet
+contact: guidet@marza.com
+version: 1.0
+url: http://www.marza.com
+rv: 3.12.20
+optional: true
+requires: ''
+
+modes:
+   - file: mayaipr_mode.mu
+     menu: Tools/Maya IPR
+     load: immediate
+
+description: Maya IPR controls
+

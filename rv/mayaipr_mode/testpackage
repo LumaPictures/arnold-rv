@@ -1,0 +1,3 @@
+#!/usr/bin/env sh
+
+rv -flags ModeManagerVerbose ModeManagerLoad=mayaipr_mode -network
