@@ -100,8 +100,6 @@ class: MayaIPRMode : rvtypes.MinorMode
       
       _endx = event.pointer().x;
       _endy = event.pointer().y;
-
-      deb("Domain: (%f, %f)" % (event.domain().x, event.domain().y));
       deb("Grow region to (%f, %f)" % (_endx, _endy));
 
       commands.redraw();
@@ -114,7 +112,8 @@ class: MayaIPRMode : rvtypes.MinorMode
       _endx = -1.0;
       _endy = -1.0;
 
-      string resetCmd = "\"renderWindowEditor -e -mq 0.425 0 0 1 renderView; renderWindowEditor -e -rr renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;\"";
+      // just reseting render region doesn't work, also need to reset marquee
+      string resetCmd = "\"renderWindowEditor -e -mq 1 0 0 1 renderView; renderWindowEditor -e -rr renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;\"";
 
       sendMayaCommand(resetCmd);
 
@@ -153,6 +152,7 @@ class: MayaIPRMode : rvtypes.MinorMode
       float img_top = geom[2][1];
       float img_left = geom[0][0];
       float img_right = geom[1][0];
+      float img_inv_aspect;
 
       if (img_bottom >= img_top || img_left >= img_right)
       {
@@ -160,6 +160,7 @@ class: MayaIPRMode : rvtypes.MinorMode
          event.reject();
          return;
       }
+      img_inv_aspect = (img_top  - img_bottom) / (img_left - img_right);
 
       float left;
       float right;
@@ -195,7 +196,7 @@ class: MayaIPRMode : rvtypes.MinorMode
          return;
       }
 
-      // now normalize coords
+      // normalize coords
       top = (top - img_bottom) / (img_top - img_bottom);
       bottom = (bottom - img_bottom) / (img_top - img_bottom);
       left = (left - img_left) / (img_right - img_left);
@@ -203,23 +204,11 @@ class: MayaIPRMode : rvtypes.MinorMode
 
       deb("Normalized area (%f, %f) -> (%f, %f)" % (bottom, left, top, right));
 
-      // for maya map top and bottom from [0, 1] to [0, 0.5]
-      top = top * 0.425;
-      bottom = bottom * 0.425;
+      // remap top and bottom range from [0, 1] to [0, 1 / image aspect ratio]
+      top = top * img_inv_aspect;
+      bottom = bottom * img_inv_aspect;
 
       sendMayaCommand("\"renderWindowEditor -e -mq %f %f %f %f renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;\"" % (top, left, bottom, right));
-
-      /*
-      - top/bottom in [0, 0.5]
-      - left/right in [0, 1]
-      - origin (0,0) bottom-left
-
-      renderWindowEditor -e -mq 0.5 0 0.2 1 renderView;
-      string $cmd = `renderer -q -changeIprRegionProcedure (currentRenderer())`;
-      eval $cmd renderView;
-
-      sendMayaCommand("regionIPR");
-      */
 
       commands.redraw();
    }
