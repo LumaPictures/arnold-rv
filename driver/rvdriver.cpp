@@ -578,9 +578,13 @@ driver_open
    {
       // always add time stamp?
       std::string mn = AiNodeGetStr(node, "media_name");
-      if (use_timestamp)
+      if (mn.length() == 0)
       {
-         mn += "_" + gcore::Date().format("%y%m%d-%H%M%S");
+         mn = gcore::Date().format("%Y-%m-%d_%H:%M:%S");
+      }
+      else if (use_timestamp)
+      {
+         mn += "_" + gcore::Date().format("%Y-%m-%d_%H:%M:%S");
       }
       AiMsgInfo("[rvdriver] Media name: %s", mn.c_str());
 
