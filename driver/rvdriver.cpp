@@ -403,10 +403,17 @@ public:
                }
                else if (len >= 8 && !strncmp(bytes, "PING 1 p", 8))
                {
-                  //mConn->write("PONG 1 p");
+                  AiMsgInfo("[rvdriver] PONG");
+                  mConn->write("PONG 1 p", 8);
                }
                else if (len >= 7 && !strncmp(bytes, "MESSAGE", 7))
                {
+                  if (strstr(bytes, "DISCONNECT") != 0)
+                  {
+                     AiMsgInfo("[rvdriver] Remotely disconnected");
+                     free(bytes);
+                     break;
+                  }
                }
                
                free(bytes);
@@ -503,7 +510,7 @@ node_parameters
 {
    AiParameterSTR("host", "localhost");
    AiParameterINT("port", 45124);
-   AiParameterFLT("gamma", 1.0f);
+   AiParameterFLT("gamma", 0.0f);
    AiParameterSTR("lut", "");
    AiParameterSTR("media_name", "");
    AiParameterBOOL("add_timestamp", false);
@@ -511,7 +518,7 @@ node_parameters
    
    //AiMetaDataSetBool(mds, "media_name", "maya.hide", true);
    //AiMetaDataSetBool(mds, "add_timestamp", "maya.hide", true);
-   //AiMetaDataSetBool(mds, "serialize_io", "maya.hide", true);
+   AiMetaDataSetBool(mds, "serialize_io", "maya.hide", true);
    AiMetaDataSetStr(mds, NULL, "maya.translator", "rv");
    AiMetaDataSetStr(mds, NULL, "maya.attr_prefix", "rv_");
    AiMetaDataSetBool(mds, NULL, "display_driver", true);
