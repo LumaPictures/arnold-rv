@@ -21,6 +21,7 @@ class: MayaRenderMode : rvtypes.MinorMode
    qt.QLineEdit _hostWidget;
    qt.QLineEdit _portWidget;
    string _iprCmdStart;
+   string _iprCmdElse;
    string _iprCmdEnd;
    string _host;
    int _port;
@@ -49,6 +50,11 @@ class: MayaRenderMode : rvtypes.MinorMode
    method: singleRender (void; Event e)
    {
       sendMayaCommand("\"renderWindowRender redoPreviousRender renderView;\"");
+   }
+
+   method: singleRenderRegion (void; Event e)
+   {
+      sendMayaCommand("\"renderWindowRenderRegion renderView;\"");
    }
 
    method: singleRenderCurrent (void; Event e)
@@ -115,6 +121,7 @@ class: MayaRenderMode : rvtypes.MinorMode
       rvtypes.Menu m1 = rvtypes.Menu {
          {"Render Current", singleRenderCurrent, nil, nil},
          {"Re-Render", singleRender, nil, nil},
+         {"Render Region", singleRenderRegion, nil, nil},
          {"_", nil},
          {"IPR Render Current", iprStartCurrent, nil, nil},
          {"IPR Re-Render", iprStart, nil, nil},
@@ -251,9 +258,11 @@ class: MayaRenderMode : rvtypes.MinorMode
       top = top * img_inv_aspect;
       bottom = bottom * img_inv_aspect;
 
-      string cmd = "renderWindowEditor -e -mq %f %f %f %f renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;" % (top, left, bottom, right);
+      string cmd0 = "renderWindowEditor -e -mq %f %f %f %f renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;" % (top, left, bottom, right);
+
+      string cmd1 = "renderWindowCheckAndRenderRegion %f %f %f %f;" % (top, left, bottom, right);
       
-      sendMayaCommand(_iprCmdStart + cmd + _iprCmdEnd);
+      sendMayaCommand(_iprCmdStart + cmd0 + _iprCmdElse + cmd1 + _iprCmdEnd);
       
       event.reject();
    }
@@ -298,6 +307,7 @@ class: MayaRenderMode : rvtypes.MinorMode
       _port = 4700;
 
       _iprCmdStart = "\"string \\$isri = \\`renderer -q -isr (currentRenderer())\\`; if (size(\\$isri) > 0 && eval(\\$isri)) { ";
+      _iprCmdElse = " } else { ";
       _iprCmdEnd = " }\"";
    }
 }
