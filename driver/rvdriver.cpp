@@ -171,7 +171,7 @@ public:
       }
    }
    
-   bool connect(std::string hostname, int port, bool runRV=true)
+   bool connect(std::string hostname, int port, bool runRV=true, bool silent=false, int maxRetry=10, unsigned long waitFor=1000)
    {
       try
       {
@@ -179,10 +179,17 @@ public:
          
          if (mSocket)
          {
-            AiMsgInfo("[rvdriver] Socket already created");
+            if (!silent)
+            {
+               AiMsgInfo("[rvdriver] Socket already created");
+            }
+
             if (mSocket->host().address() != host.address() || mSocket->host().port() != host.port())
             {
-               AiMsgInfo("[rvdriver] Host differs, destroy socket");
+               if (!silent)
+               {
+                  AiMsgInfo("[rvdriver] Host differs, destroy socket");
+               }
                close();
                delete mSocket;
                mSocket = 0;
@@ -191,13 +198,19 @@ public:
             {
                if (mConn->isValid())
                {
-                  AiMsgInfo("[rvdriver] Connection already established");
+                  if (!silent)
+                  {
+                     AiMsgInfo("[rvdriver] Connection already established");
+                  }
                   return true;
                }
                else
                {
                   // keep socket but close connection
-                  AiMsgInfo("[rvdriver] Close invalid connection");
+                  if (!silent)
+                  {
+                     AiMsgInfo("[rvdriver] Close invalid connection");
+                  }
                   mSocket->closeConnection(mConn);
                   mConn = 0;
                }
@@ -206,17 +219,26 @@ public:
          
          if (!mSocket)
          {
-            AiMsgInfo("[rvdriver] Create socket");
+            if (!silent)
+            {
+               AiMsgInfo("[rvdriver] Create socket");
+            }
             mSocket = new gnet::TCPSocket(gnet::Host(hostname, port));
          }
          
-         AiMsgInfo("[rvdriver] Connect to host");
+         if (!silent)
+         {
+            AiMsgInfo("[rvdriver] Connect to host");
+         }
          mConn = mSocket->connect();
 
          // start reading thread
          if (mSerialize)
          {
-            AiMsgInfo("[rvdriver] Starting socket writing thread");
+            if (!silent)
+            {
+               AiMsgInfo("[rvdriver] Starting socket writing thread");
+            }
             mWriteThread = AiThreadCreate(WriteThread, (void*)this, AI_PRIORITY_NORMAL);
          }
       }
@@ -231,15 +253,63 @@ public:
 
          if (runRV)
          {
-            AiMsgInfo("[rvdriver] Trying to launch RV...");
+            if (!silent)
+            {
+               AiMsgInfo("[rvdriver] Trying to launch RV...");
+            }
             
             gcore::String cmd = "rv -network -networkPort " + gcore::String(port);
-            AiMsgInfo("[rvdriver]   %s", cmd.c_str());
+
+            if (!silent)
+            {
+               AiMsgInfo("[rvdriver]   %s", cmd.c_str());
+            }
 
             gcore::Process p;
-            
+
             p.keepAlive(true);
-            p.showConsole(false);
+            p.showConsole(true);
+            p.captureOut(false);
+            p.captureErr(false);
+            p.redirectIn(false);
+
+            if (p.run(cmd) == gcore::INVALID_PID)
+            {
+               if (!silent)
+               {
+                  AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
+               }
+               return false;
+            }
+
+            int retry = 0;
+            while (retry < maxRetry)
+            {
+               gcore::Thread::SleepCurrent(waitFor);
+               if (!silent)
+               {
+                  AiMsgInfo("[rvdriver] Retry connecting... (%d/%d)", retry+1, maxRetry);
+               }
+               if (connect(hostname, port, false, true, 0, 0))
+               {
+                  break;
+               }
+               ++retry;
+            }
+
+            if (retry >= maxRetry)
+            {
+               if (!silent)
+               {
+                  AiMsgWarning("[rvdriver] Failed to connect to RV after %d attempt(s)", maxRetry);
+                  return false;
+               }
+            }
+
+            /* The following code was unreliable on windows (stdout not flushed from RV?)
+               Driver was waiting undefinitely at "p.read(tmp)"
+
+            p.showConsole(true);
             p.captureOut(true);
             p.captureErr(true, true);
 
@@ -262,10 +332,14 @@ public:
             }
 
             return connect(hostname, port, false);
+            */
          }
          else
          {
-            AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
+            if (!silent)
+            {
+               AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
+            }
             return false;
          }
       }
