@@ -13,5 +13,9 @@ modes:
      menu: Tools/Maya Render
      load: immediate
 
+files:
+   - file: maya_command_port.ui
+     location: SupportFiles/$PACKAGE
+
 description: Maya Render controls
 

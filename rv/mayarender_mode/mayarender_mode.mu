@@ -8,6 +8,7 @@ require rvui;
 require gl;
 require system;
 require qt;
+require io;
 
 class: MayaRenderMode : rvtypes.MinorMode
 {
@@ -103,8 +104,19 @@ class: MayaRenderMode : rvtypes.MinorMode
    {
       if (_setupDlg eq nil)
       {
+         string uipath = io.path.join(supportPath("mayarender_mode", "mayarender"), "maya_command_port.ui");
+         if (!io.path.exists(uipath))
+         {
+            uipath = "maya_command_port.ui";
+            if (!io.path.exists(uipath))
+            {
+               print("Cannot find \"maya_command_port.ui\" file\n");
+               return;
+            }
+         }
+
          let m = commands.mainWindowWidget();
-         _setupDlg = qt.loadUIFile("maya_command_port.ui", m);
+         _setupDlg = qt.loadUIFile(uipath, m);
          _hostWidget = _setupDlg.findChild("hostEdit");
          _portWidget = _setupDlg.findChild("portEdit");
 
