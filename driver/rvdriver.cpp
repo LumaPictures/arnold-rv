@@ -222,10 +222,7 @@ public:
       }
       catch (std::exception &err)
       {
-         AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
-         
          // No risk having mConn != 0 here
-         
          if (mSocket)
          {
             delete mSocket;
@@ -248,6 +245,7 @@ public:
 
             if (p.run(cmd) == gcore::INVALID_PID)
             {
+               AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
                return false;
             }
 
@@ -267,6 +265,7 @@ public:
          }
          else
          {
+            AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
             return false;
          }
       }
