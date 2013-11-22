@@ -103,21 +103,19 @@ class: MayaRenderMode : rvtypes.MinorMode
 
    method: startRegion (void; Event event)
    {
-      if (!_paused)
-      {
-         _startx = event.pointer().x;
-         _starty = event.pointer().y;
-         _endx = -1.0;
-         _endy = -1.0;
-         deb("Start region from (%f, %f)" % (_startx, _starty));
-      }
-
+      _startx = event.pointer().x;
+      _starty = event.pointer().y;
+      _endx = -1.0;
+      _endy = -1.0;
+      
+      deb("Start region from (%f, %f)" % (_startx, _starty));
+      
       event.reject();
    }
 
    method: growRegion (void; Event event)
    {
-      if (!_paused)
+      if (_startx >= 0.0 && _starty >= 0.0)
       {
          _endx = event.pointer().x;
          _endy = event.pointer().y;
@@ -144,14 +142,7 @@ class: MayaRenderMode : rvtypes.MinorMode
    method: endRegion (void; Event event)
    {
       deb("End region");
-
-      if (_paused)
-      {
-         resetRegion();
-         event.reject();
-         return;
-      }
-
+      
       _endx = event.pointer().x;
       _endy = event.pointer().y;
 
@@ -259,9 +250,9 @@ class: MayaRenderMode : rvtypes.MinorMode
    {
       init(name,
            nil,
-           [("pointer-1--push", startRegion, ""),
-            ("pointer-1--drag", growRegion, ""),
-            ("pointer-1--release", endRegion, ""),
+           [("pointer-2--shift--push", startRegion, ""),
+            ("pointer-2--shift--drag", growRegion, ""),
+            ("pointer-2--shift--release", endRegion, ""),
             ("render", displayRegion, "")],
            buildMenu() 
       );
