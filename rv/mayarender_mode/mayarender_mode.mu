@@ -9,6 +9,7 @@ require gl;
 require system;
 require qt;
 require io;
+require runtime;
 
 class: MayaRenderMode : rvtypes.MinorMode
 {
@@ -26,6 +27,7 @@ class: MayaRenderMode : rvtypes.MinorMode
    string _iprCmdEnd;
    string _host;
    int _port;
+   bool _win;
 
    method: deb (void; string msg)
    {
@@ -38,14 +40,13 @@ class: MayaRenderMode : rvtypes.MinorMode
    method: sendMayaCommand(void; string cmd)
    {
       deb("Send command: %s" % cmd);
+      string sendcmd = "sendmaya -h %s -p %d " % (_host, _port);
       if (_debug)
       {
-         system.system("sendmaya -h %s -p %d -v -- %s" % (_host, _port, cmd));
+         sendcmd += "-v ";
       }
-      else
-      {
-         system.system("sendmaya -h %s -p %d -- %s" % (_host, _port, cmd));
-      }
+      sendcmd += "-- %s" % cmd;
+      system.system(sendcmd);
    }
    
    method: singleRender (void; Event e)
@@ -60,7 +61,14 @@ class: MayaRenderMode : rvtypes.MinorMode
 
    method: singleRenderCurrent (void; Event e)
    {
-      sendMayaCommand("\"string \\$p = \\`playblast -activeEditor\\`; string \\$c = \\`modelPanel -query -camera (substitute(\\\".*|\\\", \\$p, \\\"\\\"))\\`; renderWindowRenderCamera render renderView \\$c;\"");
+      if (_win)
+      {
+         sendMayaCommand("\"string $p = `playblast -activeEditor`; string $c = `modelPanel -query -camera (substitute(\\\".*^^^|\\\", $p, \\\"\\\"))`; renderWindowRenderCamera render renderView $c;\"");
+      }
+      else
+      {
+         sendMayaCommand("\"string \\$p = \\`playblast -activeEditor\\`; string \\$c = \\`modelPanel -query -camera (substitute(\\\".*|\\\", \\$p, \\\"\\\"))\\`; renderWindowRenderCamera render renderView \\$c;\"");
+      }
    }
 
    method: iprStart (void; Event e)
@@ -70,7 +78,14 @@ class: MayaRenderMode : rvtypes.MinorMode
 
    method: iprStartCurrent (void; Event e)
    {
-      sendMayaCommand("\"string \\$p = \\`playblast -activeEditor\\`; string \\$c = \\`modelPanel -query -camera (substitute(\\\".*|\\\", \\$p, \\\"\\\"))\\`; renderWindowRenderCamera iprRender renderView \\$c;\"");
+      if (_win)
+      {
+         sendMayaCommand("\"string $p = `playblast -activeEditor`; string $c = `modelPanel -query -camera (substitute(\\\".*^^^|\\\", $p, \\\"\\\"))`; renderWindowRenderCamera iprRender renderView $c;\"");
+      }
+      else
+      {
+         sendMayaCommand("\"string \\$p = \\`playblast -activeEditor\\`; string \\$c = \\`modelPanel -query -camera (substitute(\\\".*|\\\", \\$p, \\\"\\\"))\\`; renderWindowRenderCamera iprRender renderView \\$c;\"");
+      }
    }
 
    method: iprPause (void; Event e)
@@ -160,6 +175,8 @@ class: MayaRenderMode : rvtypes.MinorMode
       
       deb("Start region from (%f, %f)" % (_startx, _starty));
       
+      commands.redraw();
+      
       event.reject();
    }
 
@@ -170,6 +187,8 @@ class: MayaRenderMode : rvtypes.MinorMode
          _endx = event.pointer().x;
          _endy = event.pointer().y;
          deb("Grow region to (%f, %f)" % (_endx, _endy));
+
+         commands.redraw();
       }
 
       event.reject();
@@ -184,9 +203,20 @@ class: MayaRenderMode : rvtypes.MinorMode
 
       // just reseting render region doesn't work, also need to reset marquee
       
-      string cmd = "renderWindowEditor -e -mq 1 0 0 1 renderView; renderWindowEditor -e -rr renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;";
+      string cmd;
+
+      if (_win)
+      {
+         cmd = "renderWindowEditor -e -mq 1 0 0 1 renderView; renderWindowEditor -e -rr renderView; string $cmd = `renderer -q -changeIprRegionProcedure (currentRenderer())`; eval $cmd renderView;";
+      }
+      else
+      {
+         cmd = "renderWindowEditor -e -mq 1 0 0 1 renderView; renderWindowEditor -e -rr renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;";
+      }
       
       sendMayaCommand(_iprCmdStart + cmd + _iprCmdEnd);
+
+      commands.redraw();
    }
 
    method: endRegion (void; Event event)
@@ -270,12 +300,22 @@ class: MayaRenderMode : rvtypes.MinorMode
       top = top * img_inv_aspect;
       bottom = bottom * img_inv_aspect;
 
-      string cmd0 = "renderWindowEditor -e -mq %f %f %f %f renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;" % (top, left, bottom, right);
+      string cmd0;
+
+      if (_win)
+      {
+         cmd0 = "renderWindowEditor -e -mq %f %f %f %f renderView; string $cmd = `renderer -q -changeIprRegionProcedure (currentRenderer())`; eval $cmd renderView;" % (top, left, bottom, right);
+      }
+      else
+      {
+         cmd0 = "renderWindowEditor -e -mq %f %f %f %f renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;" % (top, left, bottom, right);
+      }
 
       string cmd1 = "renderWindowCheckAndRenderRegion %f %f %f %f;" % (top, left, bottom, right);
       
       sendMayaCommand(_iprCmdStart + cmd0 + _iprCmdElse + cmd1 + _iprCmdEnd);
       
+      commands.redraw();
       event.reject();
    }
 
@@ -317,8 +357,19 @@ class: MayaRenderMode : rvtypes.MinorMode
       _debug = false;
       _host = "localhost";
       _port = 4700;
+      _win = (runtime.build_os() == "WINDOWS");
 
-      _iprCmdStart = "\"string \\$isri = \\`renderer -q -isr (currentRenderer())\\`; if (size(\\$isri) > 0 && eval(\\$isri)) { ";
+      // on windows: escape the following characters with ^: \ & | > < ^
+      // on unix   : escape the following characters with \: ` $
+
+      if (_win)
+      {
+         _iprCmdStart = "\"string $isri = `renderer -q -isr (currentRenderer())`; if (size($isri) ^^^> 0 ^^^&^^^& eval($isri)) { ";
+      }
+      else
+      {
+         _iprCmdStart = "\"string \\$isri = \\`renderer -q -isr (currentRenderer())\\`; if (size(\\$isri) > 0 && eval(\\$isri)) { ";
+      }
       _iprCmdElse = " } else { ";
       _iprCmdEnd = " }\"";
    }
