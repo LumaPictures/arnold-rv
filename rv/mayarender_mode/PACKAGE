@@ -4,7 +4,7 @@ organization: Marza Animation Planet
 contact: guidet@marza.com
 version: 1.0
 url: http://www.marza.com
-rv: 3.12.20
+rv: 3.12.14
 optional: true
 requires: ''
 
