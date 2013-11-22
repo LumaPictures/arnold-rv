@@ -7,6 +7,7 @@ require extra_commands;
 require rvui;
 require gl;
 require system;
+require qt;
 
 class: MayaRenderMode : rvtypes.MinorMode
 {
@@ -16,8 +17,13 @@ class: MayaRenderMode : rvtypes.MinorMode
    float _starty;
    float _endx;
    float _endy;
+   qt.QDialog _setupDlg;
+   qt.QLineEdit _hostWidget;
+   qt.QLineEdit _portWidget;
    string _iprCmdStart;
    string _iprCmdEnd;
+   string _host;
+   int _port;
 
    method: deb (void; string msg)
    {
@@ -32,11 +38,11 @@ class: MayaRenderMode : rvtypes.MinorMode
       deb("Send command: %s" % cmd);
       if (_debug)
       {
-         system.system("sendmaya -v -- %s" % cmd);
+         system.system("sendmaya -h %s -p %d -v -- %s" % (_host, _port, cmd));
       }
       else
       {
-         system.system("sendmaya -- %s" % cmd);
+         system.system("sendmaya -h %s -p %d -- %s" % (_host, _port, cmd));
       }
    }
    
@@ -81,6 +87,29 @@ class: MayaRenderMode : rvtypes.MinorMode
       sendMayaCommand("\"stopIprRendering renderView;\"");
    }
 
+   method: updateMayaSetup (void; )
+   {
+      _host = _hostWidget.text();
+      _port = int(_portWidget.text());
+   }
+
+   method: setupMaya (void; Event e)
+   {
+      if (_setupDlg eq nil)
+      {
+         let m = commands.mainWindowWidget();
+         _setupDlg = qt.loadUIFile("maya_command_port.ui", m);
+         _hostWidget = _setupDlg.findChild("hostEdit");
+         _portWidget = _setupDlg.findChild("portEdit");
+
+         qt.connect(_setupDlg, qt.QDialog.accepted, updateMayaSetup);
+      }
+
+      _hostWidget.setText(_host);
+      _portWidget.setText("%d" % _port);
+      _setupDlg.show();
+   }
+
    method: buildMenu (rvtypes.Menu; )
    {
       rvtypes.Menu m1 = rvtypes.Menu {
@@ -91,7 +120,9 @@ class: MayaRenderMode : rvtypes.MinorMode
          {"IPR Re-Render", iprStart, nil, nil},
          {"IPR Pause", iprPause, nil, iprPausedState},
          {"IPR Refresh", iprRefresh, nil, nil},
-         {"IPR Stop", iprStop, nil, nil}
+         {"IPR Stop", iprStop, nil, nil},
+         {"_", nil},
+         {"Configure...", setupMaya, nil, nil}
       };
 
       rvtypes.Menu ml = rvtypes.Menu {
@@ -142,7 +173,7 @@ class: MayaRenderMode : rvtypes.MinorMode
    method: endRegion (void; Event event)
    {
       deb("End region");
-      
+
       _endx = event.pointer().x;
       _endy = event.pointer().y;
 
@@ -263,6 +294,8 @@ class: MayaRenderMode : rvtypes.MinorMode
       _endx = -1.0;
       _endy = -1.0;
       _debug = false;
+      _host = "localhost";
+      _port = 4700;
 
       _iprCmdStart = "\"string \\$isri = \\`renderer -q -isr (currentRenderer())\\`; if (size(\\$isri) > 0 && eval(\\$isri)) { ";
       _iprCmdEnd = " }\"";
