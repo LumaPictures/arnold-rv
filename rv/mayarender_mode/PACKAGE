@@ -1,4 +1,4 @@
-package: Maya IPR Support
+package: Maya Render Support
 author: Gaetan Guidet
 organization: Marza Animation Planet
 contact: guidet@marza.com
@@ -9,9 +9,9 @@ optional: true
 requires: ''
 
 modes:
-   - file: mayaipr_mode.mu
-     menu: Tools/Maya IPR
+   - file: mayarender_mode.mu
+     menu: Tools/Maya Render
      load: immediate
 
-description: Maya IPR controls
+description: Maya Render controls
 

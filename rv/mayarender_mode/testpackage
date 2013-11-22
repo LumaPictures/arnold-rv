@@ -1,0 +1,5 @@
+#!/usr/bin/env sh
+
+# PATH=$PATH:`pwd`
+# MU_MODULE_PATH=`pwd`
+rv -flags ModeManagerVerbose ModeManagerLoad=mayarender_mode -network

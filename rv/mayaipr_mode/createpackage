@@ -1,4 +1,0 @@
-#!/usr/bin/env sh
-
-thisdir=`dirname $0`
-zip mayaipr-1.0.rvpkg PACKAGE mayaipr_mode.mu sendmaya.py sendmaya sendmaya.bat

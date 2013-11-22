@@ -1,5 +1,5 @@
 
-module: mayaipr_mode {
+module: mayarender_mode {
 
 require rvtypes;
 require commands;
@@ -8,7 +8,7 @@ require rvui;
 require gl;
 require system;
 
-class: MayaIPRMode : rvtypes.MinorMode
+class: MayaRenderMode : rvtypes.MinorMode
 {
    bool _debug;
    bool _paused;
@@ -16,19 +16,38 @@ class: MayaIPRMode : rvtypes.MinorMode
    float _starty;
    float _endx;
    float _endy;
+   string _iprCmdStart;
+   string _iprCmdEnd;
 
    method: deb (void; string msg)
    {
       if (_debug == true)
       {
-         print("[Maya IPR] %s\n" % msg);
+         print("[Maya Render] %s\n" % msg);
       }
    }
 
    method: sendMayaCommand(void; string cmd)
    {
       deb("Send command: %s" % cmd);
-      system.system("sendmaya -v -- %s" % cmd);
+      if (_debug)
+      {
+         system.system("sendmaya -v -- %s" % cmd);
+      }
+      else
+      {
+         system.system("sendmaya -- %s" % cmd);
+      }
+   }
+   
+   method: singleRender (void; Event e)
+   {
+      sendMayaCommand("\"renderWindowRender redoPreviousRender renderView;\"");
+   }
+
+   method: singleRenderCurrent (void; Event e)
+   {
+      sendMayaCommand("\"string \\$p = \\`getPanel -withFocus\\`; string \\$c = \\`modelPanel -query -camera \\$p\\`; renderWindowRenderCamera render renderView \\$c;\"");
    }
 
    method: iprStart (void; Event e)
@@ -36,10 +55,15 @@ class: MayaIPRMode : rvtypes.MinorMode
       sendMayaCommand("\"renderWindowRender(\\\"redoPreviousIprRender\\\", \\\"\\\");\"");
    }
 
+   method: iprStartCurrent (void; Event e)
+   {
+      sendMayaCommand("\"string \\$p = \\`getPanel -withFocus\\`; string \\$c = \\`modelPanel -query -camera \\$p\\`; renderWindowRenderCamera iprRender renderView \\$c;\"");
+   }
+
    method: iprPause (void; Event e)
    {
       _paused = !_paused;
-      sendMayaCommand("\"string \\$r = \\`currentRenderer\\`; if (eval(\\`renderer -q -isr \\$r\\`)) { renderViewTogglePauseIpr renderView; };\"");
+      sendMayaCommand(_iprCmdStart + "renderViewTogglePauseIpr renderView;" + _iprCmdEnd);
    }
 
    method: iprPausedState (int; )
@@ -49,7 +73,7 @@ class: MayaIPRMode : rvtypes.MinorMode
 
    method: iprRefresh (void; Event e)
    {
-      sendMayaCommand("\"refreshIprImage;\"");
+      sendMayaCommand(_iprCmdStart + "refreshIprImage;" + _iprCmdEnd);
    }
 
    method: iprStop (void; Event e)
@@ -60,14 +84,18 @@ class: MayaIPRMode : rvtypes.MinorMode
    method: buildMenu (rvtypes.Menu; )
    {
       rvtypes.Menu m1 = rvtypes.Menu {
-         {"Start", iprStart, nil, nil},
-         {"Pause", iprPause, nil, iprPausedState},
-         {"Refresh", iprRefresh, nil, nil},
-         {"Stop", iprStop, nil, nil}
+         {"Render Current", singleRenderCurrent, nil, nil},
+         {"Re-Render", singleRender, nil, nil},
+         {"_", nil},
+         {"IPR Render Current", iprStartCurrent, nil, nil},
+         {"IPR Re-Render", iprStart, nil, nil},
+         {"IPR Pause", iprPause, nil, iprPausedState},
+         {"IPR Refresh", iprRefresh, nil, nil},
+         {"IPR Stop", iprStop, nil, nil}
       };
 
       rvtypes.Menu ml = rvtypes.Menu {
-         {"Maya IPR", m1}
+         {"Maya Render", m1}
       };
 
       return ml;
@@ -75,34 +103,28 @@ class: MayaIPRMode : rvtypes.MinorMode
 
    method: startRegion (void; Event event)
    {
-      if (_paused)
+      if (!_paused)
       {
-         event.reject();
-         return;
+         _startx = event.pointer().x;
+         _starty = event.pointer().y;
+         _endx = -1.0;
+         _endy = -1.0;
+         deb("Start region from (%f, %f)" % (_startx, _starty));
       }
 
-      _startx = event.pointer().x;
-      _starty = event.pointer().y;
-      _endx = -1.0;
-      _endy = -1.0;
-      deb("Start region from (%f, %f)" % (_startx, _starty));
-
-      commands.redraw();
+      event.reject();
    }
 
    method: growRegion (void; Event event)
    {
-      if (_paused)
+      if (!_paused)
       {
-         event.reject();
-         return;
+         _endx = event.pointer().x;
+         _endy = event.pointer().y;
+         deb("Grow region to (%f, %f)" % (_endx, _endy));
       }
-      
-      _endx = event.pointer().x;
-      _endy = event.pointer().y;
-      deb("Grow region to (%f, %f)" % (_endx, _endy));
 
-      commands.redraw();
+      event.reject();
    }
 
    method: resetRegion(void; )
@@ -113,11 +135,10 @@ class: MayaIPRMode : rvtypes.MinorMode
       _endy = -1.0;
 
       // just reseting render region doesn't work, also need to reset marquee
-      string resetCmd = "\"renderWindowEditor -e -mq 1 0 0 1 renderView; renderWindowEditor -e -rr renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;\"";
-
-      sendMayaCommand(resetCmd);
-
-      commands.redraw();
+      
+      string cmd = "renderWindowEditor -e -mq 1 0 0 1 renderView; renderWindowEditor -e -rr renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;";
+      
+      sendMayaCommand(_iprCmdStart + cmd + _iprCmdEnd);
    }
 
    method: endRegion (void; Event event)
@@ -160,7 +181,7 @@ class: MayaIPRMode : rvtypes.MinorMode
          event.reject();
          return;
       }
-      img_inv_aspect = (img_top  - img_bottom) / (img_left - img_right);
+      img_inv_aspect = (img_top  - img_bottom) / (img_right - img_left);
 
       float left;
       float right;
@@ -208,9 +229,11 @@ class: MayaIPRMode : rvtypes.MinorMode
       top = top * img_inv_aspect;
       bottom = bottom * img_inv_aspect;
 
-      sendMayaCommand("\"renderWindowEditor -e -mq %f %f %f %f renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;\"" % (top, left, bottom, right));
-
-      commands.redraw();
+      string cmd = "renderWindowEditor -e -mq %f %f %f %f renderView; string \\$cmd = \\`renderer -q -changeIprRegionProcedure (currentRenderer())\\`; eval \\$cmd renderView;" % (top, left, bottom, right);
+      
+      sendMayaCommand(_iprCmdStart + cmd + _iprCmdEnd);
+      
+      event.reject();
    }
 
    method: displayRegion (void; Event event)
@@ -232,7 +255,7 @@ class: MayaIPRMode : rvtypes.MinorMode
       event.reject();
    }
 
-   method: MayaIPRMode(MayaIPRMode; string name)
+   method: MayaRenderMode(MayaRenderMode; string name)
    {
       init(name,
            nil,
@@ -249,18 +272,21 @@ class: MayaIPRMode : rvtypes.MinorMode
       _endx = -1.0;
       _endy = -1.0;
       _debug = false;
+
+      _iprCmdStart = "\"string \\$isri = \\`renderer -q -isr (currentRenderer())\\`; if (size(\\$isri) > 0 && eval(\\$isri)) { ";
+      _iprCmdEnd = " }\"";
    }
 }
 
 \: createMode (rvtypes.Mode;)
 {
-   print("Load mayaipr\n");
-   return MayaIPRMode("mayaipr_mode");
+   print("Load mayarender\n");
+   return MayaRenderMode("mayarender_mode");
 }
 
-\: theMode (MayaIPRMode; )
+\: theMode (MayaRenderMode; )
 {
-   MayaIPRMode m = rvui.minorModeFromName("mayaipr_mode");
+   MayaRenderMode m = rvui.minorModeFromName("mayarender_mode");
    return m;
 }
 

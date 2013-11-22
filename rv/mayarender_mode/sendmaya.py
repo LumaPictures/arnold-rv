@@ -1,6 +1,6 @@
 import socket
 
-def command(cmd, python=False, host="localhost", port=4700, verbose=False):
+def command(cmd, python=False, host="localhost", port=4700, readOutput=False, verbose=False):
    if cmd:
       client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
       client.connect((host, port))
@@ -11,10 +11,15 @@ def command(cmd, python=False, host="localhost", port=4700, verbose=False):
       if verbose:
          print("sendmaya.command [%s]\n%s" % ("python" if python else "mel", cmd))
       client.send(cmd + "\n")
+      if readOutput:
+         # up to 1024 bytes should be enough?
+         rv = client.recv(1024)
+      else:
+         rv = ""
       client.close()
-      return True
+      return rv
    else:
-      return False
+      return None
 
 if __name__ == "__main__":
    import sys
@@ -23,6 +28,7 @@ if __name__ == "__main__":
    port = 4700
    verbose = False
    python = False
+   readOutput = False
    cmd = ""
    readcmd = False
 
@@ -50,6 +56,8 @@ if __name__ == "__main__":
             verbose = True
          elif sys.argv[i] in ["-py", "--python"]:
             python = True
+         elif sys.argv[i] in ["-r", "--read"]:
+            readOutput = True
          elif sys.argv[i] == "--":
             readcmd = True
          else:
@@ -62,7 +70,9 @@ if __name__ == "__main__":
       i += 1
 
    try:
-      command(cmd, python=python, host=host, port=port, verbose=verbose)
+      rv = command(cmd, python=python, host=host, port=port, readOutput=readOutput, verbose=verbose)
+      if readOutput:
+         sys.stdout.write(rv)
       sys.exit(0)
    except Exception, e:
       sys.stderr.write("sendmaya.command failed (%s)\n" % e)      
