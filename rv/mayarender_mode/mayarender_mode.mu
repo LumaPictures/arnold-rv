@@ -47,7 +47,7 @@ class: MayaRenderMode : rvtypes.MinorMode
 
    method: singleRenderCurrent (void; Event e)
    {
-      sendMayaCommand("\"string \\$p = \\`getPanel -withFocus\\`; string \\$c = \\`modelPanel -query -camera \\$p\\`; renderWindowRenderCamera render renderView \\$c;\"");
+      sendMayaCommand("\"string \\$p = \\`playblast -activeEditor\\`; string \\$c = \\`modelPanel -query -camera (substitute(\\\".*|\\\", \\$p, \\\"\\\"))\\`; renderWindowRenderCamera render renderView \\$c;\"");
    }
 
    method: iprStart (void; Event e)
@@ -57,7 +57,7 @@ class: MayaRenderMode : rvtypes.MinorMode
 
    method: iprStartCurrent (void; Event e)
    {
-      sendMayaCommand("\"string \\$p = \\`getPanel -withFocus\\`; string \\$c = \\`modelPanel -query -camera \\$p\\`; renderWindowRenderCamera iprRender renderView \\$c;\"");
+      sendMayaCommand("\"string \\$p = \\`playblast -activeEditor\\`; string \\$c = \\`modelPanel -query -camera (substitute(\\\".*|\\\", \\$p, \\\"\\\"))\\`; renderWindowRenderCamera iprRender renderView \\$c;\"");
    }
 
    method: iprPause (void; Event e)
