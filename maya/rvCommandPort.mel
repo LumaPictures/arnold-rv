@@ -1,0 +1,25 @@
+global proc int rvCommandPort(int $showDialog)
+{
+  int $port = 0;
+  string $rv[] = `commandPort -q -lp`;
+  for ($i=0; $i<size($rv); $i++)
+  {
+    if (catchQuiet($port = int(substitute("rvCommand:", $rv[$i], ""))) == 0)
+    {
+      break;
+    }
+  }
+  if ($port == 0)
+  {
+    $port = 4700;
+    while (catchQuiet(`commandPort -n ("rvCommand:"+$port)`))
+    {
+      $port += 1;
+    }
+  }
+  if ($showDialog != 0)
+  {
+    confirmDialog -title "RV Command Port" -message $port -button "Ok" -defaultButton "Ok";
+  }
+  return $port;
+}
