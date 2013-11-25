@@ -1,34 +1,36 @@
 import socket
+import sys
 
-def command(cmd, python=False, host="localhost", port=4700, readOutput=False, verbose=False):
+def command(cmd, host, port, python, readSize, verbose):
    if cmd:
-      client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-      client.connect((host, port))
-      if cmd[-1] not in ["\n", ";"]:
-         cmd += ";"
-      if python:
-         cmd = "python(\"" + cmd.replace("\\", "\\\\").replace("\"", "\\\"") + "\");"
-      if verbose:
-         print("sendmaya.command [%s]\n%s" % ("python" if python else "mel", cmd))
-      client.send(cmd + "\n")
-      if readOutput:
-         # up to 1024 bytes should be enough?
-         rv = client.recv(1024)
-      else:
-         rv = ""
-      client.close()
-      return rv
+      try:
+         client = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+         client.connect((host, port))
+         if cmd[-1] not in ["\n", ";"]:
+            cmd += ";"
+         if python:
+            cmd = "python(\"" + cmd.replace("\\", "\\\\").replace("\"", "\\\"") + "\");"
+         if verbose:
+            print("sendmaya.command [%s]\n%s" % ("python" if python else "mel", cmd))
+         client.send(cmd + "\n")
+         if readSize > 0:
+            rv = client.recv(readSize)
+         else:
+            rv = ""
+         client.close()
+         return rv
+      except Exception, e:
+         sys.stderr.write("sendmaya.command failed (%s)\n" % e)      
+         return ""
    else:
-      return None
+      return ""
 
 if __name__ == "__main__":
-   import sys
-
    host = "localhost"
    port = 4700
    verbose = False
    python = False
-   readOutput = False
+   readSize = 0
    cmd = ""
    readcmd = False
 
@@ -57,7 +59,15 @@ if __name__ == "__main__":
          elif sys.argv[i] in ["-py", "--python"]:
             python = True
          elif sys.argv[i] in ["-r", "--read"]:
-            readOutput = True
+            i += 1
+            if i >= n:
+               sys.stderr.write("-r/--read flag requires a value\n")
+               sys.exit(1)
+            try:
+               readSize = int(sys.argv[i])
+            except:
+               sys.stderr.write("-r/--read expects an integer value\n")
+               sys.exit(1)
          elif sys.argv[i] == "--":
             readcmd = True
          else:
@@ -69,11 +79,8 @@ if __name__ == "__main__":
          cmd += sys.argv[i]
       i += 1
 
-   try:
-      rv = command(cmd, python=python, host=host, port=port, readOutput=readOutput, verbose=verbose)
-      if readOutput:
-         sys.stdout.write(rv)
-      sys.exit(0)
-   except Exception, e:
-      sys.stderr.write("sendmaya.command failed (%s)\n" % e)      
-      sys.exit(1)
+   rv = command(cmd, host, port, python, readSize, verbose)
+   if readSize > 0:
+      sys.stdout.write(rv)
+
+   sys.exit(0)

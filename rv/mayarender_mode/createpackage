@@ -1,4 +1,4 @@
 #!/usr/bin/env sh
 
 thisdir=`dirname $0`
-zip mayarender-1.0.rvpkg PACKAGE mayarender_mode.mu maya_command_port.ui sendmaya.py sendmaya sendmaya.bat
+zip mayarender-1.0.rvpkg PACKAGE mayarender_mode.mu maya_command_port.ui sendmaya.py

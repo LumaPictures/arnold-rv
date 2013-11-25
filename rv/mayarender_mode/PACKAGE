@@ -16,6 +16,8 @@ modes:
 files:
    - file: maya_command_port.ui
      location: SupportFiles/$PACKAGE
+   - file: sendmaya.py
+     location: Python
 
 description: Maya Render controls
 
