@@ -717,10 +717,20 @@ driver_open
          aov_names += ",";
       }
 
-      aov_names += std::string("\"") + aov_name + "\"";
-      
       oss.str("");
-      oss << "    newImageSourcePixels(src, frame, \"" << aov_name << "\", \"mono\");\n";
+
+      if (!strcmp(aov_name, "RGBA"))
+      {
+         // [Note: without a '' layer, RV 4.0 just leaks like a crazy]
+         aov_names += "\"\"";
+         oss << "    newImageSourcePixels(src, frame, \"\", \"master\");\n";
+      }
+      else
+      {
+         aov_names += std::string("\"") + aov_name + "\"";
+         oss << "    newImageSourcePixels(src, frame, \"" << aov_name << "\", \"master\");\n";
+      }
+
       aov_cmds += oss.str();
 
       i++;
@@ -797,7 +807,7 @@ driver_open
    oss << data->nchannels << ", ";  // channels
    oss << "32, true, 1, 1, 24.0, ";  // bit-depth, floatdata, start frame, end frame, frame rate
    oss << aov_names << ", ";  // layers
-   oss << "string[] {\"mono\"});" << std::endl;  // views
+   oss << "string[] {\"master\"});" << std::endl;  // views [Note: without a view name defined, RV 4.0 will just crash]
    oss << aov_cmds << std::endl;  // source pixel commands
    oss << "  } else {" << std::endl;
    oss << "    frame = getIntProperty(\"%s.image.end\" % src)[0] + 1;" << std::endl;
@@ -808,7 +818,7 @@ driver_open
    {
       oss << viewSetup << std::endl;
    }
-   oss << "  setViewNode(nodeGroup(src));" << std::endl; // make source the currently viewed node
+   oss << "  setViewNode(nodeGroup(src));" << std::endl;
    oss << "  setFrameEnd(frame);" << std::endl;
    oss << "  setOutPoint(frame);" << std::endl;
    oss << "  setFrame(frame);" << std::endl;
@@ -889,12 +899,12 @@ driver_write_bucket
    
    size_t tile_size = bucket_size_x * bucket_size_y * data->nchannels * sizeof(float);
    
-   oss << "PIXELTILE(media=" << *(data->media_name) << ",layer=";
+   oss << "PIXELTILE(media=" << *(data->media_name);
    
    std::string layercmd1 = oss.str();
 
    oss.str("");
-   oss << ",view=mono,w=" << bucket_size_x << ",h=" << bucket_size_y;
+   oss << ",view=master,w=" << bucket_size_x << ",h=" << bucket_size_y;
    oss << ",x=" << bucket_xo << ",y=" << (yres - bucket_yo - bucket_size_y);  // flip bucket coordinates vertically
 
    std::string layercmd2 = oss.str();
@@ -974,7 +984,14 @@ driver_write_bucket
       }
       
       oss.str("");
-      oss << layercmd1 << aov_name << layercmd2 << ",f=" << data->frame << ") " << tile_size << " ";
+      if (!strcmp(aov_name, "RGBA"))
+      {
+         oss << layercmd1 << layercmd2 << ",f=" << data->frame << ") " << tile_size << " ";
+      }
+      else
+      {
+         oss << layercmd1 << ",layer=" << aov_name << layercmd2 << ",f=" << data->frame << ") " << tile_size << " ";
+      }
       
 #ifdef _DEBUG
       std::cout << oss.str() << "<data>" << std::endl;
