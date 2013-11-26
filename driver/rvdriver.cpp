@@ -720,7 +720,7 @@ driver_open
       aov_names += std::string("\"") + aov_name + "\"";
       
       oss.str("");
-      oss << "    newImageSourcePixels(src, frame, \"" << aov_name << "\", nil);\n";
+      oss << "    newImageSourcePixels(src, frame, \"" << aov_name << "\", \"mono\");\n";
       aov_cmds += oss.str();
 
       i++;
@@ -775,7 +775,6 @@ driver_open
    // There is no need to set the data window for region renders, bc the tiles place
    // themselves appropriately within the image.
    oss.str("");
-   //oss << "EVENT remote-eval * ";
    oss << "RETURNEVENT remote-eval * ";
    oss << "{ string media = \"" << *(data->media_name) << "\";" << std::endl;
    oss << "  bool found = false;" << std::endl;
@@ -796,14 +795,14 @@ driver_open
    oss << (display_window.maxy - display_window.miny + 1) << ", ";  // uncrop h
    oss << "0, 0, 1.0, ";  // x offset, y offset, pixel aspect
    oss << data->nchannels << ", ";  // channels
-   oss << "32, false, 1, 1, 24.0, ";  // bit-depth, nofloat, start frame, end frame, frame rate
+   oss << "32, true, 1, 1, 24.0, ";  // bit-depth, floatdata, start frame, end frame, frame rate
    oss << aov_names << ", ";  // layers
-   oss << "nil);" << std::endl;  // views
-   oss << "    " << aov_cmds << std::endl;  // source pixel commands
+   oss << "string[] {\"mono\"});" << std::endl;  // views
+   oss << aov_cmds << std::endl;  // source pixel commands
    oss << "  } else {" << std::endl;
    oss << "    frame = getIntProperty(\"%s.image.end\" % src)[0] + 1;" << std::endl;
    oss << "    setIntProperty(\"%s.image.end\" % src, int[]{frame});" << std::endl;
-   oss << "    " << aov_cmds << std::endl;
+   oss << aov_cmds << std::endl;
    oss << "  }" << std::endl;
    if (viewSetup.length() > 0)
    {
@@ -819,6 +818,9 @@ driver_open
    std::string cmd = oss.str();
 
    AiMsgInfo("[rvdriver] Create image sources");
+#ifdef _DEBUG
+   std::cout << cmd << std::endl;
+#endif
    data->client->writeMessage(cmd);
 
    std::string ret;
@@ -887,11 +889,15 @@ driver_write_bucket
    
    size_t tile_size = bucket_size_x * bucket_size_y * data->nchannels * sizeof(float);
    
-   oss << "PIXELTILE(media=" << *(data->media_name) << ",w=" << bucket_size_x << ",h=" << bucket_size_y;
-   oss << ",x=" << bucket_xo << ",y=" << (yres - bucket_yo - bucket_size_y);  // flip bucket coordinates vertically
-   oss << ",layer=";
-
+   oss << "PIXELTILE(media=" << *(data->media_name) << ",layer=";
+   
    std::string layercmd1 = oss.str();
+
+   oss.str("");
+   oss << ",view=mono,w=" << bucket_size_x << ",h=" << bucket_size_y;
+   oss << ",x=" << bucket_xo << ",y=" << (yres - bucket_yo - bucket_size_y);  // flip bucket coordinates vertically
+
+   std::string layercmd2 = oss.str();
    
    int pixel_type;
    const void* bucket_data;
@@ -968,8 +974,12 @@ driver_write_bucket
       }
       
       oss.str("");
-      oss << layercmd1 << aov_name << ",f=" << data->frame << ") " << tile_size << " ";
+      oss << layercmd1 << aov_name << layercmd2 << ",f=" << data->frame << ") " << tile_size << " ";
       
+#ifdef _DEBUG
+      std::cout << oss.str() << "<data>" << std::endl;
+#endif
+
       Message msg(pixels, tile_size, FreeTile);
       
       data->client->write(oss.str());
