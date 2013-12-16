@@ -3,4 +3,5 @@ debug
 .build
 *.dblite
 *.env
+*.png
 

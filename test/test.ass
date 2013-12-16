@@ -7,10 +7,13 @@
 options
 {
  name options
- outputs 3 1 STRING 
-  "RGBA RGBA gaussian_filter rvdriver"
+ outputs 6 1 STRING 
   "direct_diffuse RGB gaussian_filter rvdriver" 
   "indirect_diffuse RGB gaussian_filter rvdriver" 
+  "RGBA RGBA gaussian_filter pngdriver0"
+  "direct_diffuse RGB gaussian_filter pngdriver1"
+  "indirect_diffuse RGB gaussian_filter pngdriver2"
+  "RGBA RGBA gaussian_filter rvdriver"
  aspect_ratio 1.000
  bucket_scanning "spiral"
  camera "perspShape"
@@ -27,6 +30,27 @@ options
 gaussian_filter
 {
  name gaussian_filter
+}
+
+driver_png
+{
+ name pngdriver0
+ filename "RGBA.png"
+ gamma 2.2
+}
+
+driver_png
+{
+ name pngdriver1
+ filename "direct_diffuse.png"
+ gamma 2.2
+}
+
+driver_png
+{
+ name pngdriver2
+ filename "indirect_diffuse.png"
+ gamma 2.2
 }
 
 rvdriver

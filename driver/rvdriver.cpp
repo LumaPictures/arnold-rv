@@ -8,6 +8,10 @@
 #   define EXTENDED_DRIVER_API
 #endif
 
+#if 0
+#  define FORCE_VIEW_NAME
+#endif
+
 AI_DRIVER_NODE_EXPORT_METHODS(RVDriverMtd);
 
 class Message
@@ -705,37 +709,45 @@ driver_open
    // Create the list of AOVs in mu syntax
    int pixel_type;
    const char* aov_name;
-   std::string aov_names = "string[] {";
+   std::string aov_names = "";
    std::string aov_cmds = "";
    data->nchannels = 0;
    unsigned int i = 0;
 
    while (AiOutputIteratorGetNext(iterator, &aov_name, &pixel_type, NULL))
    {
-      if (i > 0)
-      {
-         aov_names += ",";
-      }
-
-      oss.str("");
-
+      oss.str("");     
+#ifdef FORCE_VIEW_NAME
+      oss << "    newImageSourcePixels(src, frame, \"" << aov_name << "\", \"master\");\n";
+#else
+      oss << "    newImageSourcePixels(src, frame, \"" << aov_name << "\", nil);\n";
+#endif
+      
+      // Make RGBA the 'first' layer
       if (!strcmp(aov_name, "RGBA"))
       {
-         // [Note: without a '' layer, RV 4.0 just leaks like a crazy]
-         aov_names += "\"\"";
-         oss << "    newImageSourcePixels(src, frame, \"\", \"master\");\n";
+         if (i > 0)
+         {
+            aov_names = std::string("\"") + aov_name + "\"," + aov_names;
+         }
+         else
+         {
+            aov_names = std::string("\"") + aov_name + "\"";
+         }
+         aov_cmds = oss.str() + aov_cmds;
       }
       else
       {
+         if (i > 0)
+         {
+            aov_names += ",";
+         }
          aov_names += std::string("\"") + aov_name + "\"";
-         oss << "    newImageSourcePixels(src, frame, \"" << aov_name << "\", \"master\");\n";
+         aov_cmds += oss.str();
       }
 
-      aov_cmds += oss.str();
-
-      i++;
+      ++i;
    }
-   aov_names += "}";
 
    // For now we always convert to RGBA, because RV does not allow layers with differing types/channels
    data->nchannels = 4;
@@ -806,8 +818,12 @@ driver_open
    oss << "0, 0, 1.0, ";  // x offset, y offset, pixel aspect
    oss << data->nchannels << ", ";  // channels
    oss << "32, true, 1, 1, 24.0, ";  // bit-depth, floatdata, start frame, end frame, frame rate
-   oss << aov_names << ", ";  // layers
-   oss << "string[] {\"master\"});" << std::endl;  // views [Note: without a view name defined, RV 4.0 will just crash]
+   oss << "string[] {" << aov_names << "}, ";  // layers
+#ifdef FORCE_VIEW_NAME
+   oss << "string[] {\"master\"});" << std::endl;  // views [Note: without a view name defined, RV 4 (< 4.0.10) will just crash]
+#else
+   oss << "nil);" << std::endl;  // views
+#endif
    oss << aov_cmds << std::endl;  // source pixel commands
    oss << "  } else {" << std::endl;
    oss << "    frame = getIntProperty(\"%s.image.end\" % src)[0] + 1;" << std::endl;
@@ -904,7 +920,11 @@ driver_write_bucket
    std::string layercmd1 = oss.str();
 
    oss.str("");
+#ifdef FORCE_VIEW_NAME
    oss << ",view=master,w=" << bucket_size_x << ",h=" << bucket_size_y;
+#else
+   oss << ",w=" << bucket_size_x << ",h=" << bucket_size_y;
+#endif
    oss << ",x=" << bucket_xo << ",y=" << (yres - bucket_yo - bucket_size_y);  // flip bucket coordinates vertically
 
    std::string layercmd2 = oss.str();
@@ -984,14 +1004,7 @@ driver_write_bucket
       }
       
       oss.str("");
-      if (!strcmp(aov_name, "RGBA"))
-      {
-         oss << layercmd1 << layercmd2 << ",f=" << data->frame << ") " << tile_size << " ";
-      }
-      else
-      {
-         oss << layercmd1 << ",layer=" << aov_name << layercmd2 << ",f=" << data->frame << ") " << tile_size << " ";
-      }
+      oss << layercmd1 << ",layer=" << aov_name << layercmd2 << ",f=" << data->frame << ") " << tile_size << " ";
       
 #ifdef _DEBUG
       std::cout << oss.str() << "<data>" << std::endl;
