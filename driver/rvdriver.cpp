@@ -148,11 +148,11 @@ public:
 public:
    
    Client(bool serializeWrites=false)
-      : mSocket(0), mConn(0), mSerialize(serializeWrites), mWriteThread(0)
+      : mSocket(0), mConn(0), mSerialize(serializeWrites), mWriteThread(0), mUseOCIO(false), mRVStarted(false), mRVStartedWithOCIO(false)
    {
       if (mSerialize)
       {
-         AiMsgInfo("[rvdriver] Create serialization mutex");
+         AiMsgDebug("[rvdriver] Create serialization mutex");
          AiCritSecInitRecursive(&mMutex);
       }
    }
@@ -163,13 +163,13 @@ public:
       
       if (mSocket)
       {
-         AiMsgInfo("[rvdriver] Destroy socket");
+         AiMsgDebug("[rvdriver] Destroy socket");
          delete mSocket;
       }
       
       if (mSerialize)
       {
-         AiMsgInfo("[rvdriver] Destroy serialization mutex");
+         AiMsgDebug("[rvdriver] Destroy serialization mutex");
          AiCritSecClose(&mMutex);
          mQueue.clear();
       }
@@ -185,14 +185,14 @@ public:
          {
             if (!silent)
             {
-               AiMsgInfo("[rvdriver] Socket already created");
+               AiMsgDebug("[rvdriver] Socket already created");
             }
 
             if (mSocket->host().address() != host.address() || mSocket->host().port() != host.port())
             {
                if (!silent)
                {
-                  AiMsgInfo("[rvdriver] Host differs, destroy socket");
+                  AiMsgDebug("[rvdriver] Host differs, destroy socket");
                }
                close();
                delete mSocket;
@@ -204,7 +204,7 @@ public:
                {
                   if (!silent)
                   {
-                     AiMsgInfo("[rvdriver] Connection already established");
+                     AiMsgDebug("[rvdriver] Connection already established");
                   }
                   return true;
                }
@@ -213,7 +213,7 @@ public:
                   // keep socket but close connection
                   if (!silent)
                   {
-                     AiMsgInfo("[rvdriver] Close invalid connection");
+                     AiMsgDebug("[rvdriver] Close invalid connection");
                   }
                   mSocket->closeConnection(mConn);
                   mConn = 0;
@@ -225,14 +225,14 @@ public:
          {
             if (!silent)
             {
-               AiMsgInfo("[rvdriver] Create socket");
+               AiMsgDebug("[rvdriver] Create socket");
             }
             mSocket = new gnet::TCPSocket(gnet::Host(hostname, port));
          }
          
          if (!silent)
          {
-            AiMsgInfo("[rvdriver] Connect to host");
+            AiMsgDebug("[rvdriver] Connect to host");
          }
          mConn = mSocket->connect();
 
@@ -241,7 +241,7 @@ public:
          {
             if (!silent)
             {
-               AiMsgInfo("[rvdriver] Starting socket writing thread");
+               AiMsgDebug("[rvdriver] Starting socket writing thread");
             }
             mWriteThread = AiThreadCreate(WriteThread, (void*)this, AI_PRIORITY_NORMAL);
          }
@@ -257,16 +257,15 @@ public:
 
          if (runRV)
          {
-            if (!silent)
-            {
-               AiMsgInfo("[rvdriver] Trying to launch RV...");
-            }
-            
             gcore::String cmd = "rv -network -networkPort " + gcore::String(port);
+            if (mUseOCIO)
+            {
+               cmd += " -flags ModeManagerPreload=ocio_source_setup";
+            }
 
             if (!silent)
             {
-               AiMsgInfo("[rvdriver]   %s", cmd.c_str());
+               AiMsgInfo("[rvdriver] Starting RV \"%s\"...", cmd.c_str());
             }
 
             gcore::Process p;
@@ -292,7 +291,7 @@ public:
                gcore::Thread::SleepCurrent(waitFor);
                if (!silent)
                {
-                  AiMsgInfo("[rvdriver] Retry connecting... (%d/%d)", retry+1, maxRetry);
+                  AiMsgDebug("[rvdriver] Retry connecting... (%d/%d)", retry+1, maxRetry);
                }
                if (connect(hostname, port, false, true, 0, 0))
                {
@@ -309,6 +308,9 @@ public:
                   return false;
                }
             }
+
+            mRVStarted = true;
+            mRVStartedWithOCIO = mUseOCIO;
 
             /* The following code was unreliable on windows (stdout not flushed from RV?)
                Driver was waiting undefinitely at "p.read(tmp)"
@@ -472,7 +474,7 @@ public:
             
             if (bytes)
             {
-               AiMsgInfo("[rvdriver] Received \"%s\"", bytes);
+               AiMsgDebug("[rvdriver] Received \"%s\"", bytes);
 
                // Note: beware of multithreading if we need to write to the socket
                if (len >= 8 && !strncmp(bytes, "GREETING", 8))
@@ -480,14 +482,14 @@ public:
                }
                else if (len >= 8 && !strncmp(bytes, "PING 1 p", 8))
                {
-                  AiMsgInfo("[rvdriver] PONG");
+                  AiMsgDebug("[rvdriver] PONG");
                   mConn->write("PONG 1 p", 8);
                }
                else if (len >= 7 && !strncmp(bytes, "MESSAGE", 7))
                {
                   if (strstr(bytes, "DISCONNECT") != 0)
                   {
-                     AiMsgInfo("[rvdriver] Remotely disconnected");
+                     AiMsgDebug("[rvdriver] Remotely disconnected");
                      free(bytes);
                      break;
                   }
@@ -500,7 +502,7 @@ public:
       }
       catch (gnet::Exception &e)
       {
-         AiMsgInfo("[rvdriver] Read thread terminated: %s", e.what());
+         AiMsgDebug("[rvdriver] Read thread terminated: %s", e.what());
       }
    }
    
@@ -508,7 +510,7 @@ public:
    {
       if (mSocket && mConn)
       {
-         AiMsgInfo("[rvdriver] Close connection");
+         AiMsgDebug("[rvdriver] Close connection");
          mSocket->closeConnection(mConn);
          // closeConnection may not delete mConn if it is not a connection to it
          mConn = 0;
@@ -516,7 +518,7 @@ public:
 
       if (mSerialize && mWriteThread)
       {
-         AiMsgInfo("[rvdriver] Waiting socket writing thread to complete");
+         AiMsgDebug("[rvdriver] Waiting socket writing thread to complete");
          AiThreadWait(mWriteThread);
          AiThreadClose(mWriteThread);
          mWriteThread = 0;
@@ -527,6 +529,21 @@ public:
    {
       return (mSocket && mConn && mConn->isValid());
    }
+
+   void useOCIO(bool onoff)
+   {
+      mUseOCIO = onoff;
+   }
+
+   bool startedRV() const
+   {
+      return mRVStarted;
+   }
+
+   bool startedRVWithOCIO() const
+   {
+      return mRVStartedWithOCIO;
+   }
    
 private:
    
@@ -536,6 +553,9 @@ private:
    Queue mQueue;
    AtCritSec mMutex;
    void *mWriteThread;
+   bool mUseOCIO;
+   bool mRVStarted;
+   bool mRVStartedWithOCIO;
 };
 
 unsigned int ReadFromConnection(void *data)
@@ -557,8 +577,10 @@ namespace
     {
        p_host = 0,
        p_port,
+       p_color_correction,
        p_gamma,
        p_lut,
+       p_ocio_profile,
        p_media_name,
        p_add_timestamp,
        p_serialize_io
@@ -583,12 +605,39 @@ struct ShaderData
    }
 };
 
+enum ColorCorrection
+{
+   CC_None,
+   CC_sRGB,
+   CC_Rec709,
+   CC_Gamma_2_2,
+   CC_Gamma_2_4,
+   CC_Custom_Gamma,
+   CC_LUT,
+   CC_OCIO
+};
+
+static const char* ColorCorrectionNames[] =
+{
+   "None",
+   "sRGB",
+   "Rec709",
+   "Gamma 2.2",
+   "Gamma 2.4",
+   "Custom Gamma",
+   "LUT",
+   "OCIO",
+   NULL
+};
+
 node_parameters
 {
    AiParameterSTR("host", "localhost");
    AiParameterINT("port", 45124);
+   AiParameterENUM("color_correction", 0, ColorCorrectionNames);
    AiParameterFLT("gamma", 0.0f);
    AiParameterSTR("lut", "");
+   AiParameterSTR("ocio_profile", "");
    AiParameterSTR("media_name", "");
    AiParameterBOOL("add_timestamp", false);
    AiParameterBOOL("serialize_io", false);
@@ -603,7 +652,7 @@ node_parameters
 
 node_initialize
 {
-   AiMsgInfo("[rvdriver] Driver initialize");
+   AiMsgDebug("[rvdriver] Driver initialize");
 
    ShaderData* data = (ShaderData*) AiMalloc(sizeof(ShaderData));
    data->thread = NULL;
@@ -629,7 +678,7 @@ driver_extension
 
 driver_open
 {
-   AiMsgInfo("[rvdriver] Driver open");
+   AiMsgDebug("[rvdriver] Driver open");
    
    ShaderData *data = (ShaderData*) AiDriverGetLocalData(node);
    
@@ -637,7 +686,128 @@ driver_open
    // TODO: allow port to be a search range of form "45124-45128" ?
    int port = AiNodeGetInt(node, "port");
    bool use_timestamp = AiNodeGetBool(node, "add_timestamp");
+
+   // Read color correcition settings
+   float gamma = 1.0f;
+   std::string lut = "";
+   std::string ocio = "";
+   ColorCorrection cc = (ColorCorrection) AiNodeGetInt(node, "color_correction");
+
+   if (cc == CC_Gamma_2_2)
+   {
+      gamma = 2.2f;
+      AiMsgInfo("[rvdriver] Color Correction: Using gamma 2.2", gamma);
+   }
+   else if (cc == CC_Gamma_2_4)
+   {
+      gamma = 2.4f;
+      AiMsgInfo("[rvdriver] Color Correction: Using gamma 2.4", gamma);
+   }
+   else if (cc == CC_sRGB)
+   {
+      AiMsgInfo("[rvdriver] Color Correction: Using sRGB");
+   }
+   else if (cc == CC_Rec709)
+   {
+      AiMsgInfo("[rvdriver] Color Correction: Using Rec709");
+   }
+   else if (cc == CC_Custom_Gamma)
+   {
+      gamma = AiNodeGetFlt(node, "gamma");
+      if (gamma <= 0.0f)
+      {
+         AiMsgInfo("[rvdriver] Color Correction: \"gamma\" less than or equal to 0. Check ARNOLD_RV_DRIVER_GAMMA environment variable");
+         if (gcore::Env::IsSet("ARNOLD_RV_DRIVER_GAMMA"))
+         {
+            if (sscanf(gcore::Env::Get("ARNOLD_RV_DRIVER_GAMMA").c_str(), "%f", &gamma) != 1)
+            {
+               AiMsgInfo("[rvdriver] Color Correction: Invalid value for ARNOLD_RV_DRIVER_GAMMA environment. Default \"gamma\" to 1");
+               gamma = 1.0f;
+            }
+            else
+            {
+               AiMsgInfo("[rvdriver] Color Correction: Using gamma %f", gamma);
+            }
+         }
+         else
+         {
+            AiMsgInfo("[rvdriver] Color Correction: ARNOLD_RV_DRIVER_GAMMA environment not set. Default \"gamma\" to 1");
+            gamma = 1.0f;
+         }
+      }
+      else
+      {
+         AiMsgInfo("[rvdriver] Color Correction: Using gamma %f", gamma);
+      }
+   }
+   else if (cc == CC_LUT)
+   {
+      struct stat st;
+
+      lut = AiNodeGetStr(node, "lut");
+      if (lut.length() == 0 || stat(lut.c_str(), &st) != 0)
+      {
+         AiMsgInfo("[rvdriver] Color Correction: Invalid LUT file \"%s\". Check ARNOLD_RV_DRIVER_LUT environment variable", lut.c_str());
+         if (gcore::Env::IsSet("ARNOLD_RV_DRIVER_LUT"))
+         {
+            lut = gcore::Env::Get("ARNOLD_RV_DRIVER_LUT");
+            if (lut.length() == 0 || stat(lut.c_str(), &st) != 0)
+            {
+               AiMsgInfo("[rvdriver] Color Correction: Invalid LUT file \"%s\". No color correction", lut.c_str());
+               lut = "";
+            }
+            else
+            {
+               AiMsgInfo("[rvdriver] Color Correction: Using LUT file \"%s\"", lut.c_str());
+            }
+         }
+         else
+         {
+            AiMsgInfo("[rvdriver] Color Correction: ARNOLD_RV_DRIVER_LUT environment not set. No color correction");
+            lut = "";
+         }
+      }
+      else
+      {
+         AiMsgInfo("[rvdriver] Color Correction: Using LUT file \"%s\"", lut.c_str());
+      }
+   }
+   else if (cc == CC_OCIO)
+   {
+      struct stat st;
+
+      ocio = AiNodeGetStr(node, "ocio_profile");
+      if (ocio.length() == 0 || stat(ocio.c_str(), &st) != 0)
+      {
+         AiMsgInfo("[rvdriver] Color Correction: Invalid OCIO profile \"%s\". Check OCIO environment variable", ocio.c_str());
+         if (gcore::Env::IsSet("OCIO"))
+         {
+            ocio = gcore::Env::Get("OCIO");
+            if (ocio.length() == 0 || stat(ocio.c_str(), &st) != 0)
+            {
+               AiMsgInfo("[rvdriver] Color Correction: Invalid OCIO profile \"%s\". No color correction", ocio.c_str());
+               ocio = "";
+            }
+            else
+            {
+               AiMsgInfo("[rvdriver] Color Correction: Using OCIO profile \"%s\"", ocio.c_str());
+            }
+         }
+         else
+         {
+            AiMsgInfo("[rvdriver] Color Correction: OCIO environment not set. No color correction");
+            ocio = "";
+         }
+      }
+      else
+      {
+         // Override env value
+         gcore::Env::Set("OCIO", ocio, true);
+         AiMsgInfo("[rvdriver] Color Correction: Using OCIO profile \"%s\"", ocio.c_str());
+      }
+   }
    
+   // Create client if needed
    if (data->client == NULL)
    {
       data->client = new Client(AiNodeGetBool(node, "serialize_io"));
@@ -646,6 +816,9 @@ driver_open
    {
       return;
    }
+
+   // In case RV has not yet running, this will ensure that OCIO mode is loaded when when start it
+   data->client->useOCIO(ocio.length() > 0);
    
    if (!data->client->connect(host, port))
    {
@@ -670,7 +843,7 @@ driver_open
       {
          mn += "_" + gcore::Date().format("%Y-%m-%d_%H:%M:%S");
       }
-      AiMsgInfo("[rvdriver] Media name: %s", mn.c_str());
+      AiMsgDebug("[rvdriver] Media name: %s", mn.c_str());
 
       data->media_name = new std::string(mn);
    }
@@ -683,7 +856,7 @@ driver_open
    data->client->write(oss.str());
 
    data->client->readOnce(greeting);
-   AiMsgInfo("[rvdriver] %s", greeting.c_str());
+   AiMsgDebug("[rvdriver] %s", greeting.c_str());
 
    // Disable Ping/Pong control: No
    //data->client->write("PINGPONGCONTROL 0 ");
@@ -752,46 +925,82 @@ driver_open
    // For now we always convert to RGBA, because RV does not allow layers with differing types/channels
    data->nchannels = 4;
 
-   // Activate lut or gamma profile
-   float gamma = AiNodeGetFlt(node, "gamma");
-   std::string lut = AiNodeGetStr(node, "lut");
-   if (lut.length() == 0 && gcore::Env::IsSet("ARNOLD_RV_DRIVER_LUT"))
-   {
-      lut = gcore::Env::Get("ARNOLD_RV_DRIVER_LUT");
-   }
-
-   struct stat st;
+   // View color correction setup
    std::string viewSetup = "";
 
-   if (lut.length() > 0 && stat(lut.c_str(), &st) == 0)
+   if (ocio.length() > 0)
    {
-      // replace \ by /
-      size_t p0 = 0;
-      size_t p1 = lut.find('\\', p0);
-      while (p1 != std::string::npos)
+      // This won't work if RV hasn't ocio_source_setup package already loaded...
+      //viewSetup += "  activateMode(\"OCIO Source Setup\");\n";
+      if (data->client->startedRV())
       {
-         lut[p1] = '/';
-         p0 = p1 + 1;
-         p1 = lut.find('\\', p0);
+         if (!data->client->startedRVWithOCIO())
+         {
+            AiMsgWarning("[rvdriver] RV hasn't been started with OCIO mode preloaded. Color correction setup will not have any effect.");
+         }
       }
-      viewSetup  = "  setFloatProperty(\"#RVDisplayColor.color.gamma\", float[]{1.0});\n";
-      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.sRGB\", int[]{0});\n";
-      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.Rec709\", int[]{0});\n";
-      viewSetup += "  readLUT(\"" + lut + "\", \"#RVDisplayColor\");\n";
-      viewSetup += "  updateLUT();\n";
-      viewSetup += "  setIntProperty(\"#RVDisplayColor.lut.active\", int[]{1});";
+      else
+      {
+         AiMsgWarning("[rvdriver] RV may not have been started with OCIO mode preloaded or may be using a different OCIO profile. If so, color correction setup will not have any effect.");
+      }
    }
-   else if (gamma > 0.0f)
+   else
    {
-      char numbuf[64];
-      sprintf(numbuf, "%f", gamma);
+      if (data->client->startedRV())
+      {
+         if (data->client->startedRVWithOCIO())
+         {
+            AiMsgWarning("[rvdriver] RV has been started with OCIO mode preloaded. Any other color correction scheme will not have any effect.");
+         }
+      }
+      else
+      {
+         AiMsgWarning("[rvdriver] RV may have been started with OCIO mode preloaded. If so, any other color correction scheme will not have any effect.");
+      }
 
-      viewSetup  = "  setFloatProperty(\"#RVDisplayColor.color.gamma\", float[]{";
-      viewSetup += numbuf;
-      viewSetup += "});\n";
-      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.sRGB\", int[]{0});\n";
-      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.Rec709\", int[]{0});\n";
-      viewSetup += "  setIntProperty(\"#RVDisplayColor.lut.active\", int[]{0});";
+      if (lut.length() > 0)
+      {
+         // replace \ by /
+         size_t p0 = 0;
+         size_t p1 = lut.find('\\', p0);
+         while (p1 != std::string::npos)
+         {
+            lut[p1] = '/';
+            p0 = p1 + 1;
+            p1 = lut.find('\\', p0);
+         }
+
+         // This actually doesn't work well... avoid switching between OCIO and other Color Correction Schemes
+         // => Standard color correction menu stay greyed out
+         //viewSetup += "  deactivateMode(\"OCIO Source Setup\");\n";
+
+         viewSetup += "  setFloatProperty(\"#RVDisplayColor.color.gamma\", float[]{1.0});\n";
+         viewSetup += "  setIntProperty(\"#RVDisplayColor.color.sRGB\", int[]{0});\n";
+         viewSetup += "  setIntProperty(\"#RVDisplayColor.color.Rec709\", int[]{0});\n";
+         viewSetup += "  readLUT(\"" + lut + "\", \"#RVDisplayColor\");\n";
+         viewSetup += "  updateLUT();\n";
+         viewSetup += "  setIntProperty(\"#RVDisplayColor.lut.active\", int[]{1});";
+      }
+      else if (gamma > 0.0f)
+      {
+         char numbuf[64];
+         sprintf(numbuf, "%f", gamma);
+
+         // This actually doesn't work well... avoid switching between OCIO and other Color Correction Schemes
+         // => Standard color correction menu stay greyed out
+         //viewSetup += "  deactivateMode(\"OCIO Source Setup\");\n";
+
+         viewSetup += "  setFloatProperty(\"#RVDisplayColor.color.gamma\", float[]{";
+         viewSetup += numbuf;
+         viewSetup += "});\n";
+         viewSetup += "  setIntProperty(\"#RVDisplayColor.color.sRGB\", int[]{";
+         viewSetup += (cc == CC_sRGB ? "1" : "0");
+         viewSetup += "});\n";
+         viewSetup += "  setIntProperty(\"#RVDisplayColor.color.Rec709\", int[]{";
+         viewSetup += (cc == CC_Rec709 ? "1" : "0");
+         viewSetup += "});\n";
+         viewSetup += "  setIntProperty(\"#RVDisplayColor.lut.active\", int[]{0});";
+      }
    }
 
    // There is no need to set the data window for region renders, bc the tiles place
@@ -843,7 +1052,7 @@ driver_open
 
    std::string cmd = oss.str();
 
-   AiMsgInfo("[rvdriver] Create image sources");
+   AiMsgDebug("[rvdriver] Create image sources");
 #ifdef _DEBUG
    std::cout << cmd << std::endl;
 #endif
@@ -855,12 +1064,12 @@ driver_open
    data->client->readOnce(ret);
    if (sscanf(ret.c_str(), "MESSAGE %d RETURN %d", &msgsz, &(data->frame)) == 2)
    {
-      AiMsgInfo("[rvdriver] RV frame = %d", data->frame); 
+      AiMsgDebug("[rvdriver] RV frame = %d", data->frame); 
    }
 
    if (data->thread == 0)
    {
-      AiMsgInfo("[rvdriver] Start socket reading thread");
+      AiMsgDebug("[rvdriver] Start socket reading thread");
       data->thread = AiThreadCreate(ReadFromConnection, (void*)data->client, AI_PRIORITY_NORMAL);
    }
 }
@@ -1019,13 +1228,13 @@ driver_write_bucket
 
 driver_close
 {
-   AiMsgInfo("[rvdriver] Driver close");
+   AiMsgDebug("[rvdriver] Driver close");
 }
 
 node_finish
 {
-   AiMsgInfo("[rvdriver] Driver finish");
-   
+   AiMsgDebug("[rvdriver] Driver finish");
+
    ShaderData *data = (ShaderData*) AiDriverGetLocalData(node);
    
    if (data->media_name != NULL)
@@ -1034,7 +1243,7 @@ node_finish
       
       if (data->client->isAlive())
       {
-         AiMsgInfo("[rvdriver] Send DISCONNECT message");
+         AiMsgDebug("[rvdriver] Send DISCONNECT message");
          data->client->write("MESSAGE 10 DISCONNECT");
       }
       

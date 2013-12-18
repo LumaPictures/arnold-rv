@@ -58,11 +58,11 @@ rvdriver
  name rvdriver
 # host "localhost"
 # port 45124
- gamma 2.2
- lut "test.csp"
+ color_correction "sRGB"
+# gamma 2.2
+# lut "test.csp"
  media_name "test"
  add_timestamp off
- serialize_io off
 }
 
 persp_camera
