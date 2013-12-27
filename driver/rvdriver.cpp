@@ -645,6 +645,9 @@ node_parameters
    //AiMetaDataSetBool(mds, "media_name", "maya.hide", true);
    //AiMetaDataSetBool(mds, "add_timestamp", "maya.hide", true);
    AiMetaDataSetBool(mds, "serialize_io", "maya.hide", true);
+
+   // MtoA (maya) specific metadata 
+   AiMetaDataSetStr(mds, NULL, "maya.name", "aiAOVDriver");
    AiMetaDataSetStr(mds, NULL, "maya.translator", "rv");
    AiMetaDataSetStr(mds, NULL, "maya.attr_prefix", "rv_");
    AiMetaDataSetBool(mds, NULL, "display_driver", true);
