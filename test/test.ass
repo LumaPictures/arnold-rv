@@ -1,8 +1,3 @@
-### exported: Thu Mar  8 13:54:18 2012
-### from:     Arnold 4.0.2.0 linux 64-bit gcc412 glibc214 oiio1004 rlm922 sse (build date: Mar  2 2012 19:36:42)
-### host app: MtoA 0.15.0 Maya 2012 x64
-
-
 
 options
 {
@@ -34,7 +29,7 @@ gaussian_filter
 driver_exr
 {
  name driver_exr
- filename "/Volumes/luma/dev/byPrefix/DEV/DEV_000_CDO/lite/maya/images/beauty/test.exr"
+ filename "/shows/tp_bunk/shots/999_xz/999_xx_9998/publish/lighting/rendered_layers/larry_test/raytrace/v001/1920x1080"
 }
 
 driver_rv
@@ -674,4 +669,3 @@ distant_light
 {
  name directionalLightShape1
 }
-
