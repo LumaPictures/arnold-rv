@@ -17,6 +17,13 @@
 #include <iostream>
 #include <deque>
 
+
+// Support driver API change in Arnold 4.1
+#if AI_VERSION_ARCH_NUM > 4 || (AI_VERSION_ARCH_NUM == 4 && AI_VERSION_MAJOR_NUM >= 1)
+    #define ARNOLD_DRIVER_API_4_1
+#endif
+
+
 using namespace std;
 using boost::asio::ip::tcp;
 
@@ -221,6 +228,13 @@ driver_supports_pixel_type
    return true;
 }
 
+#ifdef ARNOLD_DRIVER_API_4_1
+driver_needs_bucket
+{
+   return true;
+}
+#endif
+
 driver_extension
 {
    return NULL;
@@ -359,6 +373,12 @@ driver_prepare_bucket
 {
    // we could send something to RV here to denote the tile we're about to render
 }
+
+#ifdef ARNOLD_DRIVER_API_4_1
+driver_process_bucket
+{
+}
+#endif
 
 driver_write_bucket
 {
