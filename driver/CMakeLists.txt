@@ -1,3 +1,5 @@
+set(CMAKE_MODULE_PATH ${CMAKE_MODULE_PATH} "${CMAKE_SOURCE_DIR}/cmake")
+
 # Arnold
 find_package(Arnold 4.0 REQUIRED)
 include_directories(${ARNOLD_INCLUDE_DIR})
@@ -17,3 +19,6 @@ add_definitions(-Wall -Wsign-compare -fvisibility=hidden -fPIC)
 set(CMAKE_EXE_LINKER_FLAGS --whole-archive -Bsymbolic)
 
 target_link_libraries(rvdriver ${ARNOLD_LIBRARY} boost_thread boost_system)
+
+install(TARGETS rvdriver
+    LIBRARY DESTINATION plugins)
