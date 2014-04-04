@@ -1,4 +1,16 @@
-import excons
+import os
+import subprocess
+
+try:
+   import excons
+except:
+   print("Initializing submodule...")
+   p = subprocess.Popen("git submodule init", shell=True)
+   p.communicate()
+   p = subprocess.Popen("git submodule update", shell=True)
+   p.communicate()
+   import excons
+
 import excons.tools.arnold as arnold
 import excons.tools.threads as threads
 import excons.tools.boost as boost
@@ -9,6 +21,9 @@ static = (int(ARGUMENTS.get("static", "1")) != 0)
 
 # to force static build (or not) in gnet
 ARGUMENTS["static"] = ("1" if static else "0")
+SConscript("gcore/SConstruct")
+
+ARGUMENTS["with-gcore-inc"] = os.path.abspath("gcore/include")
 SConscript("gnet/SConstruct")
 
 customs = [arnold.Require]
@@ -20,7 +35,7 @@ targets = [
     "type": "dynamicmodule",
     "ext": arnold.PluginExt(),
     "defs": (["GCORE_STATIC", "GNET_STATIC"] if static else []),
-    "incdirs": ["gnet/gcore/include", "gnet/include"],
+    "incdirs": ["gcore/include", "gnet/include"],
     "srcs": ["driver/rvdriver.cpp"],
     "libs": ["gcore", "gnet"],
     "custom": customs

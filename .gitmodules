@@ -4,3 +4,6 @@
 [submodule "gnet"]
 	path = gnet
 	url = git://github.com/gatgui/gnet.git
+[submodule "gcore"]
+	path = gcore
+	url = git://github.com/gatgui/gcore.git
