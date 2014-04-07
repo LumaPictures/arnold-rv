@@ -147,8 +147,10 @@ public:
    
 public:
    
-   Client(bool serializeWrites=false)
-      : mSocket(0), mConn(0), mSerialize(serializeWrites), mWriteThread(0), mUseOCIO(false), mRVStarted(false), mRVStartedWithOCIO(false)
+   Client(const std::string extraArgs="", bool serializeWrites=false)
+      : mSocket(0), mConn(0), mSerialize(serializeWrites), mWriteThread(0)
+      , mUseOCIO(false), mRVStarted(false), mRVStartedWithOCIO(false)
+      , mExtraArgs(extraArgs)
    {
       if (mSerialize)
       {
@@ -261,6 +263,11 @@ public:
             if (mUseOCIO)
             {
                cmd += " -flags ModeManagerPreload=ocio_source_setup";
+            }
+            if (mExtraArgs.length() > 0)
+            {
+               cmd += " ";
+               cmd += mExtraArgs;
             }
 
             if (!silent)
@@ -556,6 +563,7 @@ private:
    bool mUseOCIO;
    bool mRVStarted;
    bool mRVStartedWithOCIO;
+   std::string mExtraArgs;
 };
 
 unsigned int ReadFromConnection(void *data)
@@ -577,6 +585,7 @@ namespace
     {
        p_host = 0,
        p_port,
+       p_extra_args,
        p_color_correction,
        p_gamma,
        p_lut,
@@ -634,6 +643,7 @@ node_parameters
 {
    AiParameterSTR("host", "localhost");
    AiParameterINT("port", 45124);
+   AiParameterSTR("extra_args", "");
    AiParameterENUM("color_correction", 0, ColorCorrectionNames);
    AiParameterFLT("gamma", 0.0f);
    AiParameterSTR("lut", "");
@@ -815,7 +825,7 @@ driver_open
    // Create client if needed
    if (data->client == NULL)
    {
-      data->client = new Client(AiNodeGetBool(node, "serialize_io"));
+      data->client = new Client(AiNodeGetStr(node, "extra_args"), AiNodeGetBool(node, "serialize_io"));
    }
    else
    {
