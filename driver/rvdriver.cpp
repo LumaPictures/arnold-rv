@@ -138,6 +138,9 @@ class Client
 {
 public:
    
+   static gcore::Process *msRV;
+   static std::string msOCIOProfile;
+   
    static unsigned int WriteThread(void *data)
    {
       Client *client = (Client*) data;
@@ -149,8 +152,7 @@ public:
    
    Client(const std::string extraArgs="", bool serializeWrites=false)
       : mSocket(0), mConn(0), mSerialize(serializeWrites), mWriteThread(0)
-      , mUseOCIO(false), mRVStarted(false), mRVStartedWithOCIO(false)
-      , mExtraArgs(extraArgs)
+      , mUseOCIO(false), mExtraArgs(extraArgs)
    {
       if (mSerialize)
       {
@@ -189,7 +191,7 @@ public:
             {
                AiMsgDebug("[rvdriver] Socket already created");
             }
-
+            
             if (mSocket->host().address() != host.address() || mSocket->host().port() != host.port())
             {
                if (!silent)
@@ -237,7 +239,7 @@ public:
             AiMsgDebug("[rvdriver] Connect to host");
          }
          mConn = mSocket->connect();
-
+         
          // start reading thread
          if (mSerialize)
          {
@@ -256,7 +258,7 @@ public:
             delete mSocket;
             mSocket = 0;
          }
-
+         
          if (runRV)
          {
             gcore::String cmd = "rv -network -networkPort " + gcore::String(port);
@@ -269,29 +271,37 @@ public:
                cmd += " ";
                cmd += mExtraArgs;
             }
-
+            
             if (!silent)
             {
                AiMsgInfo("[rvdriver] Starting RV \"%s\"...", cmd.c_str());
             }
-
-            gcore::Process p;
-
-            p.keepAlive(true);
-            p.showConsole(true);
-            p.captureOut(false);
-            p.captureErr(false);
-            p.redirectIn(false);
-
-            if (p.run(cmd) == gcore::INVALID_PID)
+            
+            //gcore::Process p;
+            if (msRV)
+            {
+               delete msRV;
+            }
+            
+            msRV = new gcore::Process();
+            
+            msRV->keepAlive(true);
+            msRV->showConsole(true);
+            msRV->captureOut(false);
+            msRV->captureErr(false);
+            msRV->redirectIn(false);
+            
+            if (msRV->run(cmd) == gcore::INVALID_PID)
             {
                if (!silent)
                {
                   AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
                }
+               delete msRV;
+               msRV = 0;
                return false;
             }
-
+            
             int retry = 0;
             while (retry < maxRetry)
             {
@@ -306,7 +316,7 @@ public:
                }
                ++retry;
             }
-
+            
             if (retry >= maxRetry)
             {
                if (!silent)
@@ -315,23 +325,20 @@ public:
                   return false;
                }
             }
-
-            mRVStarted = true;
-            mRVStartedWithOCIO = mUseOCIO;
-
+            
             /* The following code was unreliable on windows (stdout not flushed from RV?)
                Driver was waiting undefinitely at "p.read(tmp)"
-
+            
             p.showConsole(true);
             p.captureOut(true);
             p.captureErr(true, true);
-
+            
             if (p.run(cmd) == gcore::INVALID_PID)
             {
                AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
                return false;
             }
-
+            
             // Wait until we get the "listening on port message"
             gcore::String output;
             gcore::String tmp;
@@ -343,7 +350,7 @@ public:
                   break;
                }
             }
-
+            
             return connect(hostname, port, false);
             */
          }
@@ -444,7 +451,7 @@ public:
          gcore::Thread::SleepCurrent(1000);
       }
    }
-
+   
    void readOnce(std::string &s)
    {
       if (isAlive())
@@ -464,7 +471,7 @@ public:
          s = "";
       }
    }
-
+   
    void read()
    {
       bool done = false;
@@ -522,7 +529,7 @@ public:
          // closeConnection may not delete mConn if it is not a connection to it
          mConn = 0;
       }
-
+      
       if (mSerialize && mWriteThread)
       {
          AiMsgDebug("[rvdriver] Waiting socket writing thread to complete");
@@ -531,25 +538,43 @@ public:
          mWriteThread = 0;
       }
    }
-
+   
    bool isAlive() const
    {
       return (mSocket && mConn && mConn->isValid());
    }
-
+   
    void useOCIO(bool onoff)
    {
       mUseOCIO = onoff;
    }
-
-   bool startedRV() const
+   
+   static bool StartedRV()
    {
-      return mRVStarted;
+      return (msRV != 0);
    }
-
-   bool startedRVWithOCIO() const
+   
+   static bool StartedRVWithOCIO()
    {
-      return mRVStartedWithOCIO;
+      return (StartedRV() && msRV->getCmdLine().find(" -flags ModeManagerPreload=ocio_source_setup") != std::string::npos);
+   }
+   
+   static void SetOCIOProfile(const std::string &ocioProfile)
+   {
+      msOCIOProfile = ocioProfile;
+   }
+   
+   static const std::string& GetOCIOProfile()
+   {
+      return msOCIOProfile;
+   }
+   
+   static void KillRV()
+   {
+      msRV->kill();
+      delete msRV;
+      msRV = 0;
+      msOCIOProfile = "";
    }
    
 private:
@@ -561,10 +586,11 @@ private:
    AtCritSec mMutex;
    void *mWriteThread;
    bool mUseOCIO;
-   bool mRVStarted;
-   bool mRVStartedWithOCIO;
    std::string mExtraArgs;
 };
+
+gcore::Process* Client::msRV = 0;
+std::string Client::msOCIOProfile = "";
 
 unsigned int ReadFromConnection(void *data)
 {
@@ -586,6 +612,7 @@ namespace
        p_host = 0,
        p_port,
        p_extra_args,
+       p_restart_if_needed,
        p_color_correction,
        p_gamma,
        p_lut,
@@ -644,6 +671,7 @@ node_parameters
    AiParameterSTR("host", "localhost");
    AiParameterINT("port", 45124);
    AiParameterSTR("extra_args", "");
+   AiParameterBOOL("restart_if_needed", false);
    AiParameterENUM("color_correction", 0, ColorCorrectionNames);
    AiParameterFLT("gamma", 0.0f);
    AiParameterSTR("lut", "");
@@ -701,13 +729,13 @@ driver_open
    // TODO: allow port to be a search range of form "45124-45128" ?
    int port = AiNodeGetInt(node, "port");
    bool use_timestamp = AiNodeGetBool(node, "add_timestamp");
-
+   
    // Read color correcition settings
    float gamma = 1.0f;
    std::string lut = "";
    std::string ocio = "";
    ColorCorrection cc = (ColorCorrection) AiNodeGetInt(node, "color_correction");
-
+   
    if (cc == CC_Gamma_2_2)
    {
       gamma = 2.2f;
@@ -758,7 +786,7 @@ driver_open
    else if (cc == CC_LUT)
    {
       struct stat st;
-
+      
       lut = AiNodeGetStr(node, "lut");
       if (lut.length() == 0 || stat(lut.c_str(), &st) != 0)
       {
@@ -790,7 +818,7 @@ driver_open
    else if (cc == CC_OCIO)
    {
       struct stat st;
-
+      
       ocio = AiNodeGetStr(node, "ocio_profile");
       if (ocio.length() == 0 || stat(ocio.c_str(), &st) != 0)
       {
@@ -831,9 +859,21 @@ driver_open
    {
       return;
    }
-
+   
    // In case RV has not yet running, this will ensure that OCIO mode is loaded when when start it
-   data->client->useOCIO(ocio.length() > 0);
+   bool useOCIO = (ocio.length() > 0);
+   
+   data->client->useOCIO(useOCIO);
+   
+   // Restart RV if OCIO profile has changed and restart is enabled
+   if (Client::StartedRV() && AiNodeGetBool(node, "restart_if_needed"))
+   {
+      if (Client::StartedRVWithOCIO() != useOCIO || (useOCIO && Client::GetOCIOProfile() != ocio))
+      {
+         AiMsgWarning("[rvdriver] OCIO setup has changed. Restarting RV to reflect changes.");
+         Client::KillRV();
+      }
+   }
    
    if (!data->client->connect(host, port))
    {
@@ -845,7 +885,13 @@ driver_open
       data->media_name = NULL;
       return;
    }
-
+   
+   if (Client::StartedRVWithOCIO())
+   {
+      // Track current OCIO profile
+      Client::SetOCIOProfile(ocio);
+   }
+   
    if (data->media_name == NULL)
    {
       // always add time stamp?
@@ -859,23 +905,23 @@ driver_open
          mn += "_" + gcore::Date().format("%Y-%m-%d_%H:%M:%S");
       }
       AiMsgDebug("[rvdriver] Media name: %s", mn.c_str());
-
+      
       data->media_name = new std::string(mn);
    }
-
+   
    std::ostringstream oss;
-
+   
    // Send greeting to RV
    std::string greeting = "rv-shell-1 arnold";
    oss << "NEWGREETING " << greeting.size() << " " << greeting;
    data->client->write(oss.str());
-
+   
    data->client->readOnce(greeting);
    AiMsgDebug("[rvdriver] %s", greeting.c_str());
-
+   
    // Disable Ping/Pong control: No
    //data->client->write("PINGPONGCONTROL 0 ");
-
+   
    //  The newImageSource() function needs to be called for RV create
    //  space for the image. After this the pixel blocks will refer to
    //  the media name. The media name identifies where the
@@ -893,7 +939,7 @@ driver_open
    //          newImageSourcePixels(s, ...);
    //          newImageSourcePixels(s, ...);
    //      }
-
+   
    // Create the list of AOVs in mu syntax
    int pixel_type;
    const char* aov_name;
@@ -901,7 +947,7 @@ driver_open
    std::string aov_cmds = "";
    data->nchannels = 0;
    unsigned int i = 0;
-
+   
    while (AiOutputIteratorGetNext(iterator, &aov_name, &pixel_type, NULL))
    {
       oss.str("");     
@@ -933,23 +979,23 @@ driver_open
          aov_names += std::string("\"") + aov_name + "\"";
          aov_cmds += oss.str();
       }
-
+      
       ++i;
    }
-
+   
    // For now we always convert to RGBA, because RV does not allow layers with differing types/channels
    data->nchannels = 4;
-
+   
    // View color correction setup
    std::string viewSetup = "";
-
+   
    if (ocio.length() > 0)
    {
       // This won't work if RV hasn't ocio_source_setup package already loaded...
       //viewSetup += "  activateMode(\"OCIO Source Setup\");\n";
-      if (data->client->startedRV())
+      if (Client::StartedRV())
       {
-         if (!data->client->startedRVWithOCIO())
+         if (!Client::StartedRVWithOCIO())
          {
             AiMsgWarning("[rvdriver] RV hasn't been started with OCIO mode preloaded. Color correction setup will not have any effect.");
          }
@@ -961,9 +1007,9 @@ driver_open
    }
    else
    {
-      if (data->client->startedRV())
+      if (Client::StartedRV())
       {
-         if (data->client->startedRVWithOCIO())
+         if (Client::StartedRVWithOCIO())
          {
             AiMsgWarning("[rvdriver] RV has been started with OCIO mode preloaded. Any other color correction scheme will not have any effect.");
          }
@@ -972,7 +1018,7 @@ driver_open
       {
          AiMsgWarning("[rvdriver] RV may have been started with OCIO mode preloaded. If so, any other color correction scheme will not have any effect.");
       }
-
+      
       if (lut.length() > 0)
       {
          // replace \ by /
@@ -984,11 +1030,11 @@ driver_open
             p0 = p1 + 1;
             p1 = lut.find('\\', p0);
          }
-
+         
          // This actually doesn't work well... avoid switching between OCIO and other Color Correction Schemes
          // => Standard color correction menu stay greyed out
          //viewSetup += "  deactivateMode(\"OCIO Source Setup\");\n";
-
+         
          viewSetup += "  setFloatProperty(\"#RVDisplayColor.color.gamma\", float[]{1.0});\n";
          viewSetup += "  setIntProperty(\"#RVDisplayColor.color.sRGB\", int[]{0});\n";
          viewSetup += "  setIntProperty(\"#RVDisplayColor.color.Rec709\", int[]{0});\n";
@@ -1000,11 +1046,11 @@ driver_open
       {
          char numbuf[64];
          sprintf(numbuf, "%f", gamma);
-
+         
          // This actually doesn't work well... avoid switching between OCIO and other Color Correction Schemes
          // => Standard color correction menu stay greyed out
          //viewSetup += "  deactivateMode(\"OCIO Source Setup\");\n";
-
+         
          viewSetup += "  setFloatProperty(\"#RVDisplayColor.color.gamma\", float[]{";
          viewSetup += numbuf;
          viewSetup += "});\n";
@@ -1017,7 +1063,7 @@ driver_open
          viewSetup += "  setIntProperty(\"#RVDisplayColor.lut.active\", int[]{0});";
       }
    }
-
+   
    // There is no need to set the data window for region renders, bc the tiles place
    // themselves appropriately within the image.
    oss.str("");
@@ -1064,24 +1110,24 @@ driver_open
    oss << "  setFrame(frame);" << std::endl;
    oss << "  frame;" << std::endl;
    oss << "}" << std::endl;
-
+   
    std::string cmd = oss.str();
-
+   
    AiMsgDebug("[rvdriver] Create image sources");
 #ifdef _DEBUG
    std::cout << cmd << std::endl;
 #endif
    data->client->writeMessage(cmd);
-
+   
    std::string ret;
    int msgsz = 0;
-
+   
    data->client->readOnce(ret);
    if (sscanf(ret.c_str(), "MESSAGE %d RETURN %d", &msgsz, &(data->frame)) == 2)
    {
       AiMsgDebug("[rvdriver] RV frame = %d", data->frame); 
    }
-
+   
    if (data->thread == 0)
    {
       AiMsgDebug("[rvdriver] Start socket reading thread");
