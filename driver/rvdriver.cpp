@@ -73,67 +73,6 @@ private:
    mutable FreeFunc mFree;
 };
 
-class QueueItem
-{
-public:
-   QueueItem()
-   {
-   }
-   
-   QueueItem(const std::string &s)
-      : mStr(s)
-   {
-   }
-   
-   QueueItem(const Message &m)
-      : mMsg(m)
-   {
-   }
-   
-   QueueItem(const QueueItem &rhs)
-      : mStr(rhs.mStr), mMsg(rhs.mMsg)
-   {
-   }
-   
-   ~QueueItem()
-   {
-   }
-   
-   QueueItem& operator=(const QueueItem &rhs)
-   {
-      if (this != &rhs)
-      {
-         mStr = rhs.mStr;
-         mMsg = rhs.mMsg;
-      }
-      return *this;
-   }
-   
-   void writeTo(gnet::TCPConnection *conn)
-   {
-      if (conn && conn->isValid())
-      {
-         if (mStr.length() > 0)
-         {
-            //AiMsgInfo("[rvdriver] Writing string (%lu) to socket", mStr.length());
-            conn->write(mStr.c_str(), mStr.length());
-         }
-         else if (mMsg.length() > 0)
-         {
-            //AiMsgInfo("[rvdriver] Writing Message (%lu) to socket", mMsg.length());
-            conn->write(mMsg.bytes(), mMsg.length());
-         }
-      }
-   }
-
-private:
-   
-   std::string mStr;
-   Message mMsg;
-};
-
-typedef std::deque<QueueItem> Queue;
-
 class Client
 {
 public:
@@ -141,24 +80,11 @@ public:
    static gcore::Process *msRV;
    static std::string msOCIOProfile;
    
-   static unsigned int WriteThread(void *data)
-   {
-      Client *client = (Client*) data;
-      client->write();
-      return 1;
-   }
-   
 public:
    
-   Client(const std::string extraArgs="", bool serializeWrites=false)
-      : mSocket(0), mConn(0), mSerialize(serializeWrites), mWriteThread(0)
-      , mUseOCIO(false), mExtraArgs(extraArgs)
+   Client(const std::string extraArgs="")
+      : mSocket(0), mConn(0), mUseOCIO(false), mExtraArgs(extraArgs)
    {
-      if (mSerialize)
-      {
-         AiMsgDebug("[rvdriver] Create serialization mutex");
-         AiCritSecInitRecursive(&mMutex);
-      }
    }
    
    ~Client()
@@ -169,13 +95,6 @@ public:
       {
          AiMsgDebug("[rvdriver] Destroy socket");
          delete mSocket;
-      }
-      
-      if (mSerialize)
-      {
-         AiMsgDebug("[rvdriver] Destroy serialization mutex");
-         AiCritSecClose(&mMutex);
-         mQueue.clear();
       }
    }
    
@@ -239,16 +158,6 @@ public:
             AiMsgDebug("[rvdriver] Connect to host");
          }
          mConn = mSocket->connect();
-         
-         // start reading thread
-         if (mSerialize)
-         {
-            if (!silent)
-            {
-               AiMsgDebug("[rvdriver] Starting socket writing thread");
-            }
-            mWriteThread = AiThreadCreate(WriteThread, (void*)this, AI_PRIORITY_NORMAL);
-         }
       }
       catch (std::exception &err)
       {
@@ -374,15 +283,6 @@ public:
          return;
       }
       
-      if (mSerialize)
-      {
-         AiCritSecEnter(&mMutex);
-         QueueItem item(msg);
-         mQueue.push_back(item);
-         AiCritSecLeave(&mMutex);
-         return;
-      }
-      
       try
       {
          mConn->write(msg.bytes(), msg.length());
@@ -398,15 +298,6 @@ public:
    {
       if (!isAlive())
       {
-         return;
-      }
-      
-      if (mSerialize)
-      {
-         AiCritSecEnter(&mMutex);
-         QueueItem item(msg);
-         mQueue.push_back(item);
-         AiCritSecLeave(&mMutex);
          return;
       }
       
@@ -426,30 +317,6 @@ public:
       std::ostringstream oss;
       oss << "MESSAGE " << msg.size() << " " << msg;
       write(oss.str());
-   }
-   
-   void write()
-   {
-      while (isAlive())
-      {
-         AiCritSecEnter(&mMutex);
-         while (mQueue.size() > 0)
-         {
-            try
-            {
-               mQueue.front().writeTo(mConn);
-            }
-            catch (std::exception &e)
-            {
-               AiMsgWarning("[rvdriver] Write failed: %s", e.what());
-            }
-            mQueue.pop_front();
-         }
-         AiCritSecLeave(&mMutex);
-         
-         // sleep a second
-         gcore::Thread::SleepCurrent(1000);
-      }
    }
    
    void readOnce(std::string &s)
@@ -529,14 +396,6 @@ public:
          // closeConnection may not delete mConn if it is not a connection to it
          mConn = 0;
       }
-      
-      if (mSerialize && mWriteThread)
-      {
-         AiMsgDebug("[rvdriver] Waiting socket writing thread to complete");
-         AiThreadWait(mWriteThread);
-         AiThreadClose(mWriteThread);
-         mWriteThread = 0;
-      }
    }
    
    bool isAlive() const
@@ -581,10 +440,6 @@ private:
    
    gnet::TCPSocket *mSocket;
    gnet::TCPConnection *mConn;
-   bool mSerialize;
-   Queue mQueue;
-   AtCritSec mMutex;
-   void *mWriteThread;
    bool mUseOCIO;
    std::string mExtraArgs;
 };
@@ -618,8 +473,7 @@ namespace
        p_lut,
        p_ocio_profile,
        p_media_name,
-       p_add_timestamp,
-       p_serialize_io
+       p_add_timestamp
     };
 }
 
@@ -678,11 +532,9 @@ node_parameters
    AiParameterSTR("ocio_profile", "");
    AiParameterSTR("media_name", "");
    AiParameterBOOL("add_timestamp", false);
-   AiParameterBOOL("serialize_io", false);
    
    //AiMetaDataSetBool(mds, "media_name", "maya.hide", true);
    //AiMetaDataSetBool(mds, "add_timestamp", "maya.hide", true);
-   AiMetaDataSetBool(mds, "serialize_io", "maya.hide", true);
 
    AiMetaDataSetBool(mds, NULL, "display_driver", true);
    AiMetaDataSetBool(mds, NULL, "single_layer_driver", false);
@@ -853,7 +705,7 @@ driver_open
    // Create client if needed
    if (data->client == NULL)
    {
-      data->client = new Client(AiNodeGetStr(node, "extra_args"), AiNodeGetBool(node, "serialize_io"));
+      data->client = new Client(AiNodeGetStr(node, "extra_args"));
    }
    else
    {
