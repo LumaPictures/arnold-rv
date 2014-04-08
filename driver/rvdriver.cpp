@@ -77,13 +77,10 @@ class Client
 {
 public:
    
-   static gcore::Process *msRV;
-   static std::string msOCIOProfile;
-   
-public:
-   
    Client(const std::string extraArgs="")
-      : mSocket(0), mConn(0), mUseOCIO(false), mExtraArgs(extraArgs)
+      : mSocket(0), mConn(0), mUseOCIO(false)
+      , mRVStarted(false), mRVStartedWithOCIO(false)
+      , mExtraArgs(extraArgs)
    {
    }
    
@@ -185,29 +182,21 @@ public:
             {
                AiMsgInfo("[rvdriver] Starting RV \"%s\"...", cmd.c_str());
             }
-            
-            //gcore::Process p;
-            if (msRV)
-            {
-               delete msRV;
-            }
-            
-            msRV = new gcore::Process();
-            
-            msRV->keepAlive(true);
-            msRV->showConsole(true);
-            msRV->captureOut(false);
-            msRV->captureErr(false);
-            msRV->redirectIn(false);
-            
-            if (msRV->run(cmd) == gcore::INVALID_PID)
+
+            gcore::Process p;
+
+            p.keepAlive(true);
+            p.showConsole(true);
+            p.captureOut(false);
+            p.captureErr(false);
+            p.redirectIn(false);
+
+            if (p.run(cmd) == gcore::INVALID_PID)
             {
                if (!silent)
                {
                   AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
                }
-               delete msRV;
-               msRV = 0;
                return false;
             }
             
@@ -234,7 +223,10 @@ public:
                   return false;
                }
             }
-            
+
+            mRVStarted = true;
+            mRVStartedWithOCIO = mUseOCIO;
+
             /* The following code was unreliable on windows (stdout not flushed from RV?)
                Driver was waiting undefinitely at "p.read(tmp)"
             
@@ -408,32 +400,14 @@ public:
       mUseOCIO = onoff;
    }
    
-   static bool StartedRV()
+   bool startedRV() const
    {
-      return (msRV != 0);
+      return mRVStarted;
    }
    
-   static bool StartedRVWithOCIO()
+   bool startedRVWithOCIO() const
    {
-      return (StartedRV() && msRV->getCmdLine().find(" -flags ModeManagerPreload=ocio_source_setup") != std::string::npos);
-   }
-   
-   static void SetOCIOProfile(const std::string &ocioProfile)
-   {
-      msOCIOProfile = ocioProfile;
-   }
-   
-   static const std::string& GetOCIOProfile()
-   {
-      return msOCIOProfile;
-   }
-   
-   static void KillRV()
-   {
-      msRV->kill();
-      delete msRV;
-      msRV = 0;
-      msOCIOProfile = "";
+      return mRVStartedWithOCIO;
    }
    
 private:
@@ -441,11 +415,10 @@ private:
    gnet::TCPSocket *mSocket;
    gnet::TCPConnection *mConn;
    bool mUseOCIO;
+   bool mRVStarted;
+   bool mRVStartedWithOCIO;
    std::string mExtraArgs;
 };
-
-gcore::Process* Client::msRV = 0;
-std::string Client::msOCIOProfile = "";
 
 unsigned int ReadFromConnection(void *data)
 {
@@ -467,7 +440,6 @@ namespace
        p_host = 0,
        p_port,
        p_extra_args,
-       p_restart_if_needed,
        p_color_correction,
        p_gamma,
        p_lut,
@@ -525,7 +497,6 @@ node_parameters
    AiParameterSTR("host", "localhost");
    AiParameterINT("port", 45124);
    AiParameterSTR("extra_args", "");
-   AiParameterBOOL("restart_if_needed", false);
    AiParameterENUM("color_correction", 0, ColorCorrectionNames);
    AiParameterFLT("gamma", 0.0f);
    AiParameterSTR("lut", "");
@@ -621,7 +592,7 @@ driver_open
             }
             else
             {
-               AiMsgInfo("[rvdriver] Color Correction: Using gamma %f", gamma);
+               AiMsgInfo("[rvdriver] Color Correction: Using custom gamma %f", gamma);
             }
          }
          else
@@ -632,7 +603,7 @@ driver_open
       }
       else
       {
-         AiMsgInfo("[rvdriver] Color Correction: Using gamma %f", gamma);
+         AiMsgInfo("[rvdriver] Color Correction: Using custom gamma %f", gamma);
       }
    }
    else if (cc == CC_LUT)
@@ -713,19 +684,7 @@ driver_open
    }
    
    // In case RV has not yet running, this will ensure that OCIO mode is loaded when when start it
-   bool useOCIO = (ocio.length() > 0);
-   
-   data->client->useOCIO(useOCIO);
-   
-   // Restart RV if OCIO profile has changed and restart is enabled
-   if (Client::StartedRV() && AiNodeGetBool(node, "restart_if_needed"))
-   {
-      if (Client::StartedRVWithOCIO() != useOCIO || (useOCIO && Client::GetOCIOProfile() != ocio))
-      {
-         AiMsgWarning("[rvdriver] OCIO setup has changed. Restarting RV to reflect changes.");
-         Client::KillRV();
-      }
-   }
+   data->client->useOCIO(ocio.length() > 0);
    
    if (!data->client->connect(host, port))
    {
@@ -736,12 +695,6 @@ driver_open
       }
       data->media_name = NULL;
       return;
-   }
-   
-   if (Client::StartedRVWithOCIO())
-   {
-      // Track current OCIO profile
-      Client::SetOCIOProfile(ocio);
    }
    
    if (data->media_name == NULL)
@@ -845,9 +798,9 @@ driver_open
    {
       // This won't work if RV hasn't ocio_source_setup package already loaded...
       //viewSetup += "  activateMode(\"OCIO Source Setup\");\n";
-      if (Client::StartedRV())
+      if (data->client->startedRV())
       {
-         if (!Client::StartedRVWithOCIO())
+         if (!data->client->startedRVWithOCIO())
          {
             AiMsgWarning("[rvdriver] RV hasn't been started with OCIO mode preloaded. Color correction setup will not have any effect.");
          }
@@ -859,9 +812,9 @@ driver_open
    }
    else
    {
-      if (Client::StartedRV())
+      if (data->client->startedRV())
       {
-         if (Client::StartedRVWithOCIO())
+         if (data->client->startedRVWithOCIO())
          {
             AiMsgWarning("[rvdriver] RV has been started with OCIO mode preloaded. Any other color correction scheme will not have any effect.");
          }
