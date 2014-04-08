@@ -504,6 +504,7 @@ node_parameters
    AiParameterSTR("media_name", "");
    AiParameterBOOL("add_timestamp", false);
    
+   AiMetaDataSetBool(mds, "gamma", "maya.hide", true);
    //AiMetaDataSetBool(mds, "media_name", "maya.hide", true);
    //AiMetaDataSetBool(mds, "add_timestamp", "maya.hide", true);
 
