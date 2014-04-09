@@ -1,14 +1,22 @@
 import os
+import glob
 import subprocess
+
+initsubs = False
 
 try:
    import excons
+   if len(glob.glob("gcore/*")) == 0:
+      initsubs = True
+   if len(glob.glob("gnet/*")) == 0:
+      initsubs = True
 except:
-   print("Initializing submodule...")
-   p = subprocess.Popen("git submodule init", shell=True)
-   p.communicate()
-   p = subprocess.Popen("git submodule update", shell=True)
-   p.communicate()
+   initsubs = True
+
+if initsubs:
+   subprocess.Popen("git submodule init", shell=True).communicate()
+   subprocess.Popen("git submodule update", shell=True).communicate()
+   
    import excons
 
 import excons.tools.arnold as arnold
