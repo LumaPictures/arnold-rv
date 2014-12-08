@@ -1,4 +1,5 @@
 import os
+import sys
 import glob
 import subprocess
 
@@ -25,18 +26,25 @@ import excons.tools.boost as boost
 
 env = excons.MakeBaseEnv()
 
-static = (int(ARGUMENTS.get("static", "1")) != 0)
+static = (excons.GetArgument("static", 1, int) != 0)
 
 # to force static build (or not) in gnet
-ARGUMENTS["static"] = ("1" if static else "0")
+excons.SetArgument("static", 1 if static else 0)
 SConscript("gcore/SConstruct")
 
-ARGUMENTS["with-gcore-inc"] = os.path.abspath("gcore/include")
+excons.SetArgument("with-gcore-inc", os.path.abspath("gcore/include"))
 SConscript("gnet/SConstruct")
 
 customs = [arnold.Require]
 if static:
    customs.append(threads.Require)
+
+if sys.platform != "win32":
+   def NoUnused(env):
+      env.Append(CPPFLAGS=" -Wno-unused-parameter")
+   
+   customs.append(NoUnused)
+
 
 targets = [
    {"name": "rvdriver",

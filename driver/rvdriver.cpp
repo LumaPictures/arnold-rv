@@ -563,12 +563,12 @@ driver_open
    if (cc == CC_Gamma_2_2)
    {
       gamma = 2.2f;
-      AiMsgInfo("[rvdriver] Color Correction: Using gamma 2.2", gamma);
+      AiMsgInfo("[rvdriver] Color Correction: Using gamma 2.2");
    }
    else if (cc == CC_Gamma_2_4)
    {
       gamma = 2.4f;
-      AiMsgInfo("[rvdriver] Color Correction: Using gamma 2.4", gamma);
+      AiMsgInfo("[rvdriver] Color Correction: Using gamma 2.4");
    }
    else if (cc == CC_sRGB)
    {

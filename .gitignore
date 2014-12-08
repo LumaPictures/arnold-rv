@@ -4,4 +4,4 @@ debug
 *.dblite
 *.env
 *.png
-
+excons.cache
