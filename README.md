@@ -1,25 +1,3 @@
-I have forked the original arnold-rv repository (thanks Chad!) and re-worked it a bit. 
-
-Here are the modifications:
-- removed dependency to boost libraries, introoduced others to gnet, gcore, excons
-- support compiling with arnold 4.1
-- when using a fixed media name, stack consecutive renders as frames in the media
-- added option to add timestamp to media name (one might not necessarily want renders to be stacked as frames)
-- re-order AOVs so that RGBA always comes first
-- added a few color correction parameter:
-color_correction: one of None, sRGB, Rec709, Gamma 2.2, Gamma 2.4, Custom Gamma, LUT or OCIO)
-gamma: Used when mode is Custom Gamma. The ARNOLD_RV_DRIVER_GAMMA environment variable to control it
-lut: Used when mode is LUT. The ARNOLD_RV_DRIVER_LUT environment variable to control it
-ocio_profile: Use when mode is OCIO. The OCIO environment variable to control it)    
-
-Note: To switch between OCIO and any other color correction mode, RV has to be re-started 
-(the driver will start rv with the approriate command line when necessary)
-- respond to RV ping signal
-- addition of an RV module to start maya render/ipr (including region) from RV
-Note: Works using the maya command port, so you need have one open. I also added a simple script to open one if necessary. 
-Also Maya RenderView will popup but I couldn't find a way to avoid that (it actually goes as far as to make maya crash in some cases).
-
-
 =======================
 Arnold RV Driver
 =======================
@@ -43,4 +21,36 @@ All I ask is that if you do improve it, please fork and commit your changes back
 
 Chad Dombrova
 
+-----------------------
+Updates
+-----------------------
 
+First, I'd like to thank Chad and LumaPictures for sharing the source code of their original code.
+
+I'm glad to say that the leak Chad was talking about was fixed in late 2013 after I took some time to talk with tweaks software support and provide them with data to re-produce the issues. Several other issues related to the improvements I have made to the driver were also fixed on the go.
+
+Since then, we've been using it in production.
+
+Here are the modifications I've brought to the orignal implementation:
+- removed runtime dependency to boost libraries. (That said, I have left the code using boost)
+- added my own utility libraries gnet, gcore as submodules in replacement of boost.
+- build using SCons with the help of excons (pulled as a submodule).
+  The new driver target is 'rvdriver' (default). The old boost based driver target is 'driver_rv'.
+- support compiling with arnold 4.1.
+- when using a fixed media name, stack consecutive renders as frames in the media.
+- added option to suffix timestamp to media name in case one may not want renders to be stacked as frames.
+- re-order AOVs so that RGBA always comes first.
+- added a few color correction parameter:
+color_correction: one of None, sRGB, Rec709, Gamma 2.2, Gamma 2.4, Custom Gamma, LUT or OCIO
+gamma: Used when mode is Custom Gamma. It can also be controlled by setting the ARNOLD_RV_DRIVER_GAMMA environment variable.
+lut: Used when mode is LUT. It can also be controlled by setting the ARNOLD_RV_DRIVER_LUT environment variable.
+ocio_profile: Use when mode is OCIO. It can also be controlled by the OCIO environment variable.
+
+Note: To switch between OCIO and any other color correction mode, RV has to be re-started 
+(the driver will start rv with the approriate command line when necessary)
+- respond to RV ping signal
+- new RV package to start maya render/ipr (including region) from RV
+Note: Works using the maya command port, so you need have one open. I also added a simple script to open one if necessary. 
+Also Maya RenderView will popup but I couldn't find a way to avoid that (it actually goes as far as to make maya crash in some cases).
+
+Gaetan Guidet
