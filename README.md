@@ -41,16 +41,28 @@ Here are the modifications I've brought to the orignal implementation:
 - added option to suffix timestamp to media name in case one may not want renders to be stacked as frames.
 - re-order AOVs so that RGBA always comes first.
 - added a few color correction parameter:
-color_correction: one of None, sRGB, Rec709, Gamma 2.2, Gamma 2.4, Custom Gamma, LUT or OCIO
-gamma: Used when mode is Custom Gamma. It can also be controlled by setting the ARNOLD_RV_DRIVER_GAMMA environment variable.
-lut: Used when mode is LUT. It can also be controlled by setting the ARNOLD_RV_DRIVER_LUT environment variable.
-ocio_profile: Use when mode is OCIO. It can also be controlled by the OCIO environment variable.
 
-Note: To switch between OCIO and any other color correction mode, RV has to be re-started 
+**color_correction** one of None, sRGB, Rec709, Gamma 2.2, Gamma 2.4, Custom Gamma, LUT or OCIO
+
+**gamma** Used when mode is Custom Gamma. It can also be controlled by setting the ARNOLD_RV_DRIVER_GAMMA environment variable.
+
+**lut** Used when mode is LUT. It can also be controlled by setting the ARNOLD_RV_DRIVER_LUT environment variable.
+
+**ocio_profile** Use when mode is OCIO. It can also be controlled by the OCIO environment variable.
+
+*Note:*
+
+To switch between OCIO and any other color correction mode, RV has to be re-started 
 (the driver will start rv with the approriate command line when necessary)
+
 - respond to RV ping signal
 - new RV package to start maya render/ipr (including region) from RV
-Note: Works using the maya command port, so you need have one open. I also added a simple script to open one if necessary. 
-Also Maya RenderView will popup but I couldn't find a way to avoid that (it actually goes as far as to make maya crash in some cases).
+
+*Note:*
+
+Works using the maya command port, so you need have one open.
+I have added a simple script to open one if necessary. 
+A Maya RenderView will popup if none exists yet.
+I couldn't find a way to avoid that (it actually goes as far as to make maya crash in some cases).
 
 Gaetan Guidet
