@@ -191,7 +191,7 @@ class: MayaRenderMode : rvtypes.MinorMode
          commands.redraw();
       }
 
-      event.reject();
+      // event.reject();
    }
 
    method: resetRegion(void; )
