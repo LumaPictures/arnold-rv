@@ -391,6 +391,7 @@ struct ShaderData
    Client* client;
    std::string* media_name;
    int frame;
+   float fps;
 };
 
 enum ColorCorrection
@@ -452,6 +453,7 @@ node_initialize
    data->client = NULL;
    data->media_name = NULL;
    data->frame = 0;
+   data->fps = 24.0;
    AiDriverInitialize(node, true, data);
 }
 
@@ -641,6 +643,29 @@ driver_open
       data->media_name = new std::string(mn);
    }
    
+   // Read FPS from options node if possible
+   AtNode *opts = AiUniverseGetOptions();
+   
+   const AtUserParamEntry *upe = AiNodeLookUpUserParameter(opts, "fps");
+   if (upe)
+   {
+      if (AiUserParamGetCategory(upe) == AI_USERDEF_CONSTANT &&
+          AiUserParamGetArrayType(upe) == AI_TYPE_FLOAT)
+      {
+         data->fps = AiNodeGetFlt(opts, "fps");
+      }
+      else
+      {
+         AiMsgDebug("[rvdriver] Expects 'fps' user parameter on options node to be a constant float. Defaulting to 24.");
+         data->fps = 24.0;
+      }
+   }
+   else
+   {
+      AiMsgDebug("[rvdriver] No 'fps' user parameter on options node. Defaulting to 24.");
+      data->fps = 24.0;
+   }
+   
    std::ostringstream oss;
    
    // Send greeting to RV
@@ -813,7 +838,8 @@ driver_open
    oss << (display_window.maxy - display_window.miny + 1) << ", ";  // h
    oss << (display_window.maxx - display_window.minx + 1) << ", ";  // uncrop w
    oss << (display_window.maxy - display_window.miny + 1) << ", ";  // uncrop h
-   oss << "0, 0, 1.0, 4, 32, true, 1, 1, 24.0, ";  // x offset, y offset, pixel aspect, channels, bit-depth, floatdata, start frame, end frame, frame rate
+   oss << "0, 0, 1.0, 4, 32, true, 1, 1, ";  // x offset, y offset, pixel aspect, channels, bit-depth, floatdata, start frame, end frame
+   oss << data->fps << ", "; // frame rate
    oss << "string[] {" << aov_names << "}, ";  // layers
 #ifdef FORCE_VIEW_NAME
    oss << "string[] {\"master\"});" << std::endl;  // views [Note: without a view name defined, RV 4 (< 4.0.10) will just crash]
