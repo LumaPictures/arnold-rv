@@ -14,65 +14,6 @@
 
 AI_DRIVER_NODE_EXPORT_METHODS(RVDriverMtd);
 
-class Message
-{
-public:
-   
-   typedef void (*FreeFunc)(void*);
-   
-   Message()
-      : mData(0), mLength(0), mFree(0)
-   {
-   }
-   
-   Message(void* data, size_t length, FreeFunc freeData=0)
-      : mData(data), mLength(length), mFree(freeData)
-   {
-   }
-   
-   Message(const Message &rhs)
-      : mData(rhs.mData), mLength(rhs.mLength), mFree(rhs.mFree)
-   {
-      rhs.mFree = 0;
-   }
-   
-   ~Message()
-   {
-      if (mData && mFree)
-      {
-         mFree(mData);
-      }
-   }
-   
-   Message& operator=(const Message &rhs)
-   {
-      if (this != &rhs)
-      {
-         mData = rhs.mData;
-         mLength = rhs.mLength;
-         mFree = rhs.mFree;
-         rhs.mFree = 0;
-      }
-      return *this;
-   }
-   
-   const char* bytes() const
-   {
-      return reinterpret_cast<const char*>(mData);
-   }
-   
-   size_t length() const
-   {
-      return mLength;
-   }
-   
-private:
-   
-   void* mData;
-   size_t mLength;
-   mutable FreeFunc mFree;
-};
-
 class Client
 {
 public:
@@ -268,24 +209,6 @@ public:
       return true;
    }
    
-   void write(Message &msg)
-   {
-      if (!isAlive())
-      {
-         return;
-      }
-      
-      try
-      {
-         mConn->write(msg.bytes(), msg.length());
-      }
-      catch (std::exception &err)
-      {
-         AiMsgWarning("[rvdriver] Error while writing: %s", err.what());
-         close();
-      }
-   }
-   
    void write(const std::string& msg)
    {
       if (!isAlive())
@@ -296,6 +219,25 @@ public:
       try
       {
          mConn->write(msg.c_str(), msg.length());
+      }
+      catch (std::exception &err)
+      {
+         AiMsgWarning("[rvdriver] Error while writing: %s", err.what());
+         close();
+      }
+   }
+   
+   void writeBucket(const std::string &header, void *pixels, size_t size)
+   {
+      if (!isAlive())
+      {
+         return;
+      }
+      
+      try
+      {
+         mConn->write(header.c_str(), header.length());
+         mConn->write((const char*)pixels, size);
       }
       catch (std::exception &err)
       {
@@ -427,12 +369,6 @@ unsigned int ReadFromConnection(void *data)
    return 1;
 }
 
-void FreeTile(void *data)
-{
-   AtRGBA *pixels = (AtRGBA*) data;
-   delete[] pixels;
-}
-
 namespace
 {
     enum RVDriverParams
@@ -454,17 +390,7 @@ struct ShaderData
    void* thread;
    Client* client;
    std::string* media_name;
-   int nchannels;
    int frame;
-   
-   ShaderData()
-      : thread(NULL)
-      , client(NULL)
-      , media_name(NULL)
-      , nchannels(-1)
-      , frame(1)
-   {
-   }
 };
 
 enum ColorCorrection
@@ -525,7 +451,7 @@ node_initialize
    data->thread = NULL;
    data->client = NULL;
    data->media_name = NULL;
-   data->nchannels = -1;
+   data->frame = 0;
    AiDriverInitialize(node, true, data);
 }
 
@@ -751,7 +677,6 @@ driver_open
    const char* aov_name;
    std::string aov_names = "";
    std::string aov_cmds = "";
-   data->nchannels = 0;
    unsigned int i = 0;
    
    while (AiOutputIteratorGetNext(iterator, &aov_name, &pixel_type, NULL))
@@ -788,9 +713,6 @@ driver_open
       
       ++i;
    }
-   
-   // For now we always convert to RGBA, because RV does not allow layers with differing types/channels
-   data->nchannels = 4;
    
    // View color correction setup
    std::string viewSetup = "";
@@ -891,9 +813,7 @@ driver_open
    oss << (display_window.maxy - display_window.miny + 1) << ", ";  // h
    oss << (display_window.maxx - display_window.minx + 1) << ", ";  // uncrop w
    oss << (display_window.maxy - display_window.miny + 1) << ", ";  // uncrop h
-   oss << "0, 0, 1.0, ";  // x offset, y offset, pixel aspect
-   oss << data->nchannels << ", ";  // channels
-   oss << "32, true, 1, 1, 24.0, ";  // bit-depth, floatdata, start frame, end frame, frame rate
+   oss << "0, 0, 1.0, 4, 32, true, 1, 1, 24.0, ";  // x offset, y offset, pixel aspect, channels, bit-depth, floatdata, start frame, end frame, frame rate
    oss << "string[] {" << aov_names << "}, ";  // layers
 #ifdef FORCE_VIEW_NAME
    oss << "string[] {\"master\"});" << std::endl;  // views [Note: without a view name defined, RV 4 (< 4.0.10) will just crash]
@@ -989,7 +909,7 @@ driver_write_bucket
    
    int yres = AiNodeGetInt(AiUniverseGetOptions(), "yres");
    
-   size_t tile_size = bucket_size_x * bucket_size_y * data->nchannels * sizeof(float);
+   size_t tile_size = bucket_size_x * bucket_size_y * 4 * sizeof(float);
    
    oss << "PIXELTILE(media=" << *(data->media_name);
    
@@ -1008,11 +928,10 @@ driver_write_bucket
    int pixel_type;
    const void* bucket_data;
    const char* aov_name;
+   AtRGBA* pixels = (AtRGBA*) AiMalloc(tile_size);
    
    while (AiOutputIteratorGetNext(iterator, &aov_name, &pixel_type, &bucket_data))
    {
-      AtRGBA* pixels = new AtRGBA[bucket_size_x * bucket_size_y];
-      
       switch(pixel_type)
       {
          case AI_TYPE_RGBA:
@@ -1085,12 +1004,11 @@ driver_write_bucket
 #ifdef _DEBUG
       std::cout << oss.str() << "<data>" << std::endl;
 #endif
-
-      Message msg(pixels, tile_size, FreeTile);
       
-      data->client->write(oss.str());
-      data->client->write(msg);
-   }   
+      data->client->writeBucket(oss.str(), (void*)pixels, tile_size);
+   } 
+   
+   AiFree(pixels);
 }
 
 driver_close
@@ -1116,6 +1034,7 @@ node_finish
       
       AiThreadWait(data->thread);
       AiThreadClose(data->thread);
+      data->thread = 0;
    }
    
    delete data->client;
