@@ -136,7 +136,7 @@ public:
             {
                if (!silent)
                {
-                  AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
+                  AiMsgWarning("[rvdriver] Failed to start RV");
                }
                return false;
             }
