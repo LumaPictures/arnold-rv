@@ -109,10 +109,8 @@ public:
          if (runRV)
          {
             gcore::String cmd = "rv -network -networkPort " + gcore::String(port);
-            if (mUseOCIO)
-            {
-               cmd += " -flags ModeManagerPreload=ocio_source_setup";
-            }
+            // always start with ocio_source_setup module, with recent RV version, OCIO can be toggled on and off
+            cmd += " -flags ModeManagerPreload=ocio_source_setup";
             if (mExtraArgs.length() > 0)
             {
                cmd += " ";
@@ -166,7 +164,7 @@ public:
             }
 
             mRVStarted = true;
-            mRVStartedWithOCIO = mUseOCIO;
+            mRVStartedWithOCIO = true;
 
             /* The following code was unreliable on windows (stdout not flushed from RV?)
                Driver was waiting undefinitely at "p.read(tmp)"
@@ -742,6 +740,16 @@ driver_open
    // View color correction setup
    std::string viewSetup = "";
    
+   
+   viewSetup += "  for_each (n; nodesInGroup(grp)) {\n";
+   viewSetup += "    string nt = nodeType(n);\n";
+   viewSetup += "    if (nt == \"RVLinearizePipelineGroup\") {\n";
+   viewSetup += "      if (lin_pipe == \"\") lin_pipe = n;\n";
+   viewSetup += "    } else if (nt == \"RVLookPipelineGroup\") {\n";
+   viewSetup += "      if (look_pipe == \"\") look_pipe = n;\n";
+   viewSetup += "    }\n";
+   viewSetup += "  }\n";
+   
    if (ocio.length() > 0)
    {
       // This won't work if RV hasn't ocio_source_setup package already loaded...
@@ -750,27 +758,62 @@ driver_open
       {
          if (!data->client->startedRVWithOCIO())
          {
-            AiMsgWarning("[rvdriver] RV hasn't been started with OCIO mode preloaded. Color correction setup will not have any effect.");
+            AiMsgWarning("[rvdriver] RV hasn't been started with OCIO mode preloaded. Color correction setup may not have any effect.");
          }
       }
       else
       {
-         AiMsgWarning("[rvdriver] RV may not have been started with OCIO mode preloaded or may be using a different OCIO profile. If so, color correction setup will not have any effect.");
+         AiMsgWarning("[rvdriver] RV may not have been started with OCIO mode preloaded. Color correction setup may not have any effect..");
       }
+      
+      viewSetup += "  found = false;\n";
+      viewSetup += "  for_each (n; nodesInGroup(lin_pipe)) {\n";
+      viewSetup += "    if (nodeType(n) == \"OCIOFile\") {\n";
+      viewSetup += "      found = true;\n";
+      viewSetup += "      break;\n";
+      viewSetup += "    }\n";
+      viewSetup += "  }\n";
+      viewSetup += "  if (!found) {\n";
+      viewSetup += "    setStringProperty(\"%s.pipeline.nodes\" % lin_pipe, string[]{\"OCIOFile\", \"RVLensWarp\"}, true);\n";
+      viewSetup += "    for_each (n; nodesInGroup(lin_pipe)) {\n";
+      viewSetup += "      if (nodeType(n) == \"OCIOFile\") {\n";
+      viewSetup += "        setStringProperty(\"%s.ocio.function\" % n, string[]{\"color\"}, true);\n";
+      viewSetup += "        setStringProperty(\"%s.ocio.inColorSpace\" % n, string[]{\"scene_linear\"}, true);\n";
+      viewSetup += "        setStringProperty(\"%s.ocio_color.outColorSpace\" % n, string[]{\"scene_linear\"}, true);\n";
+      viewSetup += "        break;\n";
+      viewSetup += "      }\n";
+      viewSetup += "    }\n";
+      viewSetup += "  }\n";
+      
+      viewSetup += "  found = false;\n";
+      viewSetup += "  for_each (n; nodesInGroup(look_pipe)) {\n";
+      viewSetup += "    if (nodeType(n) == \"OCIOLook\") {\n";
+      viewSetup += "      found = true;\n";
+      viewSetup += "      break;\n";
+      viewSetup += "    }\n";
+      viewSetup += "  }\n";
+      viewSetup += "  if (!found) {\n";
+      viewSetup += "    setStringProperty(\"%s.pipeline.nodes\" % look_pipe, string[]{\"OCIOLook\"}, true);\n";
+      viewSetup += "    for_each (n; nodesInGroup(look_pipe)) {\n";
+      viewSetup += "      if (nodeType(n) == \"OCIOLook\") {\n";
+      // viewSetup += "        setStringProperty(\"%s.ocio.function\" % n, string[]{\"display\"}, true);\n";
+      // viewSetup += "        setStringProperty(\"%s.ocio.inColorSpace\" % n, string[]{\"scene_linear\"}, true);\n";
+      // viewSetup += "        setStringProperty(\"%s.ocio_display.display\" % n, string[]{\"\"}, true);\n"; // ocio_config.getDefaultDisplay()
+      // viewSetup += "        setStringProperty(\"%s.ocio_display.view\" % n, string[]{\"\"}, true);\n"; // ocio_config.getDefaultView(display)
+      viewSetup += "        break;\n";
+      viewSetup += "      }\n";
+      viewSetup += "    }\n";
+      viewSetup += "  }\n";
+      
+      viewSetup += "  setFloatProperty(\"#RVDisplayColor.color.gamma\", float[]{1.0});\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.sRGB\", int[]{0});\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.Rec709\", int[]{0});\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.lut.active\", int[]{0});\n";
    }
    else
    {
-      if (data->client->startedRV())
-      {
-         if (data->client->startedRVWithOCIO())
-         {
-            AiMsgWarning("[rvdriver] RV has been started with OCIO mode preloaded. Any other color correction scheme will not have any effect.");
-         }
-      }
-      else
-      {
-         AiMsgWarning("[rvdriver] RV may have been started with OCIO mode preloaded. If so, any other color correction scheme will not have any effect.");
-      }
+      viewSetup += "  setStringProperty(\"%s.pipeline.nodes\" % lin_pipe, string[]{\"RVLinearize\", \"RVLensWarp\"}, true);\n";
+      viewSetup += "  setStringProperty(\"%s.pipeline.nodes\" % look_pipe, string[]{\"RVLookLUT\"}, true);\n";
       
       if (lut.length() > 0)
       {
@@ -824,6 +867,10 @@ driver_open
    oss << "{ string media = \"" << *(data->media_name) << "\";" << std::endl;
    oss << "  bool found = false;" << std::endl;
    oss << "  string src = \"\";" << std::endl;
+   oss << "  string grp = \"\";" << std::endl;
+   oss << "  string lin_pipe = \"\";" << std::endl;
+   oss << "  string look_pipe = \"\";" << std::endl;
+   oss << "  string ocio_file = \"\";" << std::endl;
    oss << "  int frame = 1;" << std::endl;
    oss << "  for_each (source; nodesOfType(\"RVImageSource\")) {" << std::endl;
    oss << "    if (getStringProperty(\"%s.media.name\" % source)[0] == media) {" << std::endl;
@@ -852,11 +899,12 @@ driver_open
    oss << "    setIntProperty(\"%s.image.end\" % src, int[]{frame});" << std::endl;
    oss << aov_cmds << std::endl;
    oss << "  }" << std::endl;
+   oss << "  grp = nodeGroup(src);" << std::endl;
    if (viewSetup.length() > 0)
    {
       oss << viewSetup << std::endl;
    }
-   oss << "  setViewNode(nodeGroup(src));" << std::endl;
+   oss << "  setViewNode(grp);" << std::endl;
    oss << "  setFrameEnd(frame);" << std::endl;
    oss << "  setOutPoint(frame);" << std::endl;
    oss << "  setFrame(frame);" << std::endl;
