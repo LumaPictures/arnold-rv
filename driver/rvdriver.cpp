@@ -14,65 +14,6 @@
 
 AI_DRIVER_NODE_EXPORT_METHODS(RVDriverMtd);
 
-class Message
-{
-public:
-   
-   typedef void (*FreeFunc)(void*);
-   
-   Message()
-      : mData(0), mLength(0), mFree(0)
-   {
-   }
-   
-   Message(void* data, size_t length, FreeFunc freeData=0)
-      : mData(data), mLength(length), mFree(freeData)
-   {
-   }
-   
-   Message(const Message &rhs)
-      : mData(rhs.mData), mLength(rhs.mLength), mFree(rhs.mFree)
-   {
-      rhs.mFree = 0;
-   }
-   
-   ~Message()
-   {
-      if (mData && mFree)
-      {
-         mFree(mData);
-      }
-   }
-   
-   Message& operator=(const Message &rhs)
-   {
-      if (this != &rhs)
-      {
-         mData = rhs.mData;
-         mLength = rhs.mLength;
-         mFree = rhs.mFree;
-         rhs.mFree = 0;
-      }
-      return *this;
-   }
-   
-   const char* bytes() const
-   {
-      return reinterpret_cast<const char*>(mData);
-   }
-   
-   size_t length() const
-   {
-      return mLength;
-   }
-   
-private:
-   
-   void* mData;
-   size_t mLength;
-   mutable FreeFunc mFree;
-};
-
 class Client
 {
 public:
@@ -168,10 +109,8 @@ public:
          if (runRV)
          {
             gcore::String cmd = "rv -network -networkPort " + gcore::String(port);
-            if (mUseOCIO)
-            {
-               cmd += " -flags ModeManagerPreload=ocio_source_setup";
-            }
+            // always start with ocio_source_setup module, with recent RV version, OCIO can be toggled on and off
+            cmd += " -flags ModeManagerPreload=ocio_source_setup";
             if (mExtraArgs.length() > 0)
             {
                cmd += " ";
@@ -195,7 +134,7 @@ public:
             {
                if (!silent)
                {
-                  AiMsgWarning("[rvdriver] Error while connecting: %s", err.what());
+                  AiMsgWarning("[rvdriver] Failed to start RV");
                }
                return false;
             }
@@ -225,7 +164,7 @@ public:
             }
 
             mRVStarted = true;
-            mRVStartedWithOCIO = mUseOCIO;
+            mRVStartedWithOCIO = true;
 
             /* The following code was unreliable on windows (stdout not flushed from RV?)
                Driver was waiting undefinitely at "p.read(tmp)"
@@ -268,24 +207,6 @@ public:
       return true;
    }
    
-   void write(Message &msg)
-   {
-      if (!isAlive())
-      {
-         return;
-      }
-      
-      try
-      {
-         mConn->write(msg.bytes(), msg.length());
-      }
-      catch (std::exception &err)
-      {
-         AiMsgWarning("[rvdriver] Error while writing: %s", err.what());
-         close();
-      }
-   }
-   
    void write(const std::string& msg)
    {
       if (!isAlive())
@@ -296,6 +217,25 @@ public:
       try
       {
          mConn->write(msg.c_str(), msg.length());
+      }
+      catch (std::exception &err)
+      {
+         AiMsgWarning("[rvdriver] Error while writing: %s", err.what());
+         close();
+      }
+   }
+   
+   void writeBucket(const std::string &header, void *pixels, size_t size)
+   {
+      if (!isAlive())
+      {
+         return;
+      }
+      
+      try
+      {
+         mConn->write(header.c_str(), header.length());
+         mConn->write((const char*)pixels, size);
       }
       catch (std::exception &err)
       {
@@ -427,12 +367,6 @@ unsigned int ReadFromConnection(void *data)
    return 1;
 }
 
-void FreeTile(void *data)
-{
-   AtRGBA *pixels = (AtRGBA*) data;
-   delete[] pixels;
-}
-
 namespace
 {
     enum RVDriverParams
@@ -454,17 +388,8 @@ struct ShaderData
    void* thread;
    Client* client;
    std::string* media_name;
-   int nchannels;
    int frame;
-   
-   ShaderData()
-      : thread(NULL)
-      , client(NULL)
-      , media_name(NULL)
-      , nchannels(-1)
-      , frame(1)
-   {
-   }
+   float fps;
 };
 
 enum ColorCorrection
@@ -525,7 +450,8 @@ node_initialize
    data->thread = NULL;
    data->client = NULL;
    data->media_name = NULL;
-   data->nchannels = -1;
+   data->frame = 0;
+   data->fps = 24.0;
    AiDriverInitialize(node, true, data);
 }
 
@@ -715,6 +641,29 @@ driver_open
       data->media_name = new std::string(mn);
    }
    
+   // Read FPS from options node if possible
+   AtNode *opts = AiUniverseGetOptions();
+   
+   const AtUserParamEntry *upe = AiNodeLookUpUserParameter(opts, "fps");
+   if (upe)
+   {
+      if (AiUserParamGetCategory(upe) == AI_USERDEF_CONSTANT &&
+          AiUserParamGetArrayType(upe) == AI_TYPE_FLOAT)
+      {
+         data->fps = AiNodeGetFlt(opts, "fps");
+      }
+      else
+      {
+         AiMsgDebug("[rvdriver] Expects 'fps' user parameter on options node to be a constant float. Defaulting to 24.");
+         data->fps = 24.0;
+      }
+   }
+   else
+   {
+      AiMsgDebug("[rvdriver] No 'fps' user parameter on options node. Defaulting to 24.");
+      data->fps = 24.0;
+   }
+   
    std::ostringstream oss;
    
    // Send greeting to RV
@@ -751,7 +700,6 @@ driver_open
    const char* aov_name;
    std::string aov_names = "";
    std::string aov_cmds = "";
-   data->nchannels = 0;
    unsigned int i = 0;
    
    while (AiOutputIteratorGetNext(iterator, &aov_name, &pixel_type, NULL))
@@ -789,11 +737,18 @@ driver_open
       ++i;
    }
    
-   // For now we always convert to RGBA, because RV does not allow layers with differing types/channels
-   data->nchannels = 4;
-   
    // View color correction setup
    std::string viewSetup = "";
+   
+   
+   viewSetup += "  for_each (n; nodesInGroup(grp)) {\n";
+   viewSetup += "    string nt = nodeType(n);\n";
+   viewSetup += "    if (nt == \"RVLinearizePipelineGroup\") {\n";
+   viewSetup += "      if (lin_pipe == \"\") lin_pipe = n;\n";
+   viewSetup += "    } else if (nt == \"RVLookPipelineGroup\") {\n";
+   viewSetup += "      if (look_pipe == \"\") look_pipe = n;\n";
+   viewSetup += "    }\n";
+   viewSetup += "  }\n";
    
    if (ocio.length() > 0)
    {
@@ -803,27 +758,62 @@ driver_open
       {
          if (!data->client->startedRVWithOCIO())
          {
-            AiMsgWarning("[rvdriver] RV hasn't been started with OCIO mode preloaded. Color correction setup will not have any effect.");
+            AiMsgWarning("[rvdriver] RV hasn't been started with OCIO mode preloaded. Color correction setup may not have any effect.");
          }
       }
       else
       {
-         AiMsgWarning("[rvdriver] RV may not have been started with OCIO mode preloaded or may be using a different OCIO profile. If so, color correction setup will not have any effect.");
+         AiMsgWarning("[rvdriver] RV may not have been started with OCIO mode preloaded. Color correction setup may not have any effect..");
       }
+      
+      viewSetup += "  found = false;\n";
+      viewSetup += "  for_each (n; nodesInGroup(lin_pipe)) {\n";
+      viewSetup += "    if (nodeType(n) == \"OCIOFile\") {\n";
+      viewSetup += "      found = true;\n";
+      viewSetup += "      break;\n";
+      viewSetup += "    }\n";
+      viewSetup += "  }\n";
+      viewSetup += "  if (!found) {\n";
+      viewSetup += "    setStringProperty(\"%s.pipeline.nodes\" % lin_pipe, string[]{\"OCIOFile\", \"RVLensWarp\"}, true);\n";
+      viewSetup += "    for_each (n; nodesInGroup(lin_pipe)) {\n";
+      viewSetup += "      if (nodeType(n) == \"OCIOFile\") {\n";
+      viewSetup += "        setStringProperty(\"%s.ocio.function\" % n, string[]{\"color\"}, true);\n";
+      viewSetup += "        setStringProperty(\"%s.ocio.inColorSpace\" % n, string[]{\"scene_linear\"}, true);\n";
+      viewSetup += "        setStringProperty(\"%s.ocio_color.outColorSpace\" % n, string[]{\"scene_linear\"}, true);\n";
+      viewSetup += "        break;\n";
+      viewSetup += "      }\n";
+      viewSetup += "    }\n";
+      viewSetup += "  }\n";
+      
+      viewSetup += "  found = false;\n";
+      viewSetup += "  for_each (n; nodesInGroup(look_pipe)) {\n";
+      viewSetup += "    if (nodeType(n) == \"OCIOLook\") {\n";
+      viewSetup += "      found = true;\n";
+      viewSetup += "      break;\n";
+      viewSetup += "    }\n";
+      viewSetup += "  }\n";
+      viewSetup += "  if (!found) {\n";
+      viewSetup += "    setStringProperty(\"%s.pipeline.nodes\" % look_pipe, string[]{\"OCIOLook\"}, true);\n";
+      viewSetup += "    for_each (n; nodesInGroup(look_pipe)) {\n";
+      viewSetup += "      if (nodeType(n) == \"OCIOLook\") {\n";
+      // viewSetup += "        setStringProperty(\"%s.ocio.function\" % n, string[]{\"display\"}, true);\n";
+      // viewSetup += "        setStringProperty(\"%s.ocio.inColorSpace\" % n, string[]{\"scene_linear\"}, true);\n";
+      // viewSetup += "        setStringProperty(\"%s.ocio_display.display\" % n, string[]{\"\"}, true);\n"; // ocio_config.getDefaultDisplay()
+      // viewSetup += "        setStringProperty(\"%s.ocio_display.view\" % n, string[]{\"\"}, true);\n"; // ocio_config.getDefaultView(display)
+      viewSetup += "        break;\n";
+      viewSetup += "      }\n";
+      viewSetup += "    }\n";
+      viewSetup += "  }\n";
+      
+      viewSetup += "  setFloatProperty(\"#RVDisplayColor.color.gamma\", float[]{1.0});\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.sRGB\", int[]{0});\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.color.Rec709\", int[]{0});\n";
+      viewSetup += "  setIntProperty(\"#RVDisplayColor.lut.active\", int[]{0});\n";
    }
    else
    {
-      if (data->client->startedRV())
-      {
-         if (data->client->startedRVWithOCIO())
-         {
-            AiMsgWarning("[rvdriver] RV has been started with OCIO mode preloaded. Any other color correction scheme will not have any effect.");
-         }
-      }
-      else
-      {
-         AiMsgWarning("[rvdriver] RV may have been started with OCIO mode preloaded. If so, any other color correction scheme will not have any effect.");
-      }
+      viewSetup += "  setStringProperty(\"%s.pipeline.nodes\" % lin_pipe, string[]{\"RVLinearize\", \"RVLensWarp\"}, true);\n";
+      viewSetup += "  setStringProperty(\"%s.pipeline.nodes\" % look_pipe, string[]{\"RVLookLUT\"}, true);\n";
       
       if (lut.length() > 0)
       {
@@ -877,6 +867,10 @@ driver_open
    oss << "{ string media = \"" << *(data->media_name) << "\";" << std::endl;
    oss << "  bool found = false;" << std::endl;
    oss << "  string src = \"\";" << std::endl;
+   oss << "  string grp = \"\";" << std::endl;
+   oss << "  string lin_pipe = \"\";" << std::endl;
+   oss << "  string look_pipe = \"\";" << std::endl;
+   oss << "  string ocio_file = \"\";" << std::endl;
    oss << "  int frame = 1;" << std::endl;
    oss << "  for_each (source; nodesOfType(\"RVImageSource\")) {" << std::endl;
    oss << "    if (getStringProperty(\"%s.media.name\" % source)[0] == media) {" << std::endl;
@@ -891,9 +885,8 @@ driver_open
    oss << (display_window.maxy - display_window.miny + 1) << ", ";  // h
    oss << (display_window.maxx - display_window.minx + 1) << ", ";  // uncrop w
    oss << (display_window.maxy - display_window.miny + 1) << ", ";  // uncrop h
-   oss << "0, 0, 1.0, ";  // x offset, y offset, pixel aspect
-   oss << data->nchannels << ", ";  // channels
-   oss << "32, true, 1, 1, 24.0, ";  // bit-depth, floatdata, start frame, end frame, frame rate
+   oss << "0, 0, 1.0, 4, 32, true, 1, 1, ";  // x offset, y offset, pixel aspect, channels, bit-depth, floatdata, start frame, end frame
+   oss << data->fps << ", "; // frame rate
    oss << "string[] {" << aov_names << "}, ";  // layers
 #ifdef FORCE_VIEW_NAME
    oss << "string[] {\"master\"});" << std::endl;  // views [Note: without a view name defined, RV 4 (< 4.0.10) will just crash]
@@ -906,11 +899,12 @@ driver_open
    oss << "    setIntProperty(\"%s.image.end\" % src, int[]{frame});" << std::endl;
    oss << aov_cmds << std::endl;
    oss << "  }" << std::endl;
+   oss << "  grp = nodeGroup(src);" << std::endl;
    if (viewSetup.length() > 0)
    {
       oss << viewSetup << std::endl;
    }
-   oss << "  setViewNode(nodeGroup(src));" << std::endl;
+   oss << "  setViewNode(grp);" << std::endl;
    oss << "  setFrameEnd(frame);" << std::endl;
    oss << "  setOutPoint(frame);" << std::endl;
    oss << "  setFrame(frame);" << std::endl;
@@ -989,7 +983,7 @@ driver_write_bucket
    
    int yres = AiNodeGetInt(AiUniverseGetOptions(), "yres");
    
-   size_t tile_size = bucket_size_x * bucket_size_y * data->nchannels * sizeof(float);
+   size_t tile_size = bucket_size_x * bucket_size_y * 4 * sizeof(float);
    
    oss << "PIXELTILE(media=" << *(data->media_name);
    
@@ -1008,11 +1002,10 @@ driver_write_bucket
    int pixel_type;
    const void* bucket_data;
    const char* aov_name;
+   AtRGBA* pixels = (AtRGBA*) AiMalloc(tile_size);
    
    while (AiOutputIteratorGetNext(iterator, &aov_name, &pixel_type, &bucket_data))
    {
-      AtRGBA* pixels = new AtRGBA[bucket_size_x * bucket_size_y];
-      
       switch(pixel_type)
       {
          case AI_TYPE_RGBA:
@@ -1085,12 +1078,11 @@ driver_write_bucket
 #ifdef _DEBUG
       std::cout << oss.str() << "<data>" << std::endl;
 #endif
-
-      Message msg(pixels, tile_size, FreeTile);
       
-      data->client->write(oss.str());
-      data->client->write(msg);
-   }   
+      data->client->writeBucket(oss.str(), (void*)pixels, tile_size);
+   } 
+   
+   AiFree(pixels);
 }
 
 driver_close
@@ -1116,6 +1108,7 @@ node_finish
       
       AiThreadWait(data->thread);
       AiThreadClose(data->thread);
+      data->thread = 0;
    }
    
    delete data->client;
