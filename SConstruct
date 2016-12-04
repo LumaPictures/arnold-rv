@@ -60,7 +60,7 @@ targets = [
     "type": "dynamicmodule",
     "ext": arnold.PluginExt(),
     "srcs": ["driver/driver_rv.cpp"],
-    "custom": [arnold.Require, boost.Require(libs=["thread-mt", "date_time-mt", "system-mt"], static=static)]
+    "custom": [arnold.Require, boost.Require(libs=["thread-mt", "date_time-mt", "system-mt"])]
    }
 ]
 
