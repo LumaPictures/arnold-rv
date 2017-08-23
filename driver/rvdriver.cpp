@@ -1,7 +1,7 @@
 #include <ai.h>
 #include <sstream>
 #include <algorithm>
-#include <gcore/gcore>
+#include <gcore/all.h>
 #include <gnet/gnet>
 
 #if AI_VERSION_ARCH_NUM > 4 || (AI_VERSION_ARCH_NUM == 4 && AI_VERSION_MAJOR_NUM >= 1)
